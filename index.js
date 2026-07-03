@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const { messagingApi, middleware } = require('@line/bot-sdk');
 const { estimateFoodFromImage } = require('./visionEstimate');
-const { addMealLog, addBodyWeightLog } = require('./sheetsWriter');
+const { addMealLog, addBodyWeightLog, updateMealSlot } = require('./sheetsWriter');
 const nutritionDb = require('./nutrition-db.json');
 
 const app = express();
@@ -12,6 +12,48 @@ const client = new messagingApi.MessagingApiClient({
 const blobClient = new messagingApi.MessagingApiBlobClient({
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
 });
+
+// 食事の時間帯確認待ちユーザーを一時保存するメモリ（key: userId）
+const pendingMealConfirmations = new Map();
+const MEAL_CONFIRM_TTL_MS = 10 * 60 * 1000; // 10分
+
+/**
+ * 現在時刻（JST）から食事の時間帯を自動判定
+  */
+function getMealSlotByTime() {
+    const now = new Date();
+    const jstHour = (now.getUTCHours() + 9) % 24;
+
+    if (jstHour >= 5 && jstHour < 10) return '朝食';
+    if (jstHour >= 10 && jstHour < 14) return '昼食';
+    if (jstHour >= 14 && jstHour < 17) return '間食';
+    if (jstHour >= 17 && jstHour < 21) return '夕食';
+    return '間食';
+}
+
+/**
+ * 食事の時間帯確認をLINEにクイックリプライ付きで返信
+  */
+async function replyWithMealSlotQuickReply(replyToken, text) {
+    try {
+          await client.replyMessage({
+                  replyToken: replyToken,
+                  messages: [{
+                            type: 'text',
+                            text: text,
+                            quickReply: {
+                                        items: ['朝食', '昼食', '夕食', '間食'].map((label) => ({
+                                                      type: 'action',
+                                                      action: { type: 'message', label: label, text: label },
+                                        })),
+                            },
+                  }],
+          });
+          console.log('✉️ LINEに返信しました（時間帯クイックリプライ付き）');
+    } catch (error) {
+          console.error('❌ LINE返信エラー:', error.message);
+    }
+}
 
 // LINE Webhook middleware
 app.use(middleware({
@@ -96,6 +138,29 @@ app.post('/webhook', (req, res) => {
       // テキストメッセージ処理
       if (event.message.type === 'text') {
         const text = event.message.text;
+
+                // 食事の時間帯クイックリプライへの返信を判定
+                const mealSlotKeywords = ['朝食', '昼食', '夕食', '間食'];
+                const trimmedText = text.trim();
+                if (mealSlotKeywords.includes(trimmedText)) {
+                            const userId = event.source && event.source.userId;
+                            const pending = userId ? pendingMealConfirmations.get(userId) : null;
+
+                            if (pending && pending.expireAt > Date.now()) {
+                                          try {
+                                                          await updateMealSlot(pending.row, trimmedText);
+                                                          pendingMealConfirmations.delete(userId);
+                                                          await replyToUser(event.replyToken, `✅ 食事の時間帯を「${trimmedText}」に更新しました`);
+                                          } catch (error) {
+                                                          console.error('時間帯更新エラー:', error.message);
+                                                          await replyToUser(event.replyToken, '❌ 時間帯の更新に失敗しました');
+                                          }
+                            } else {
+                                          await replyToUser(event.replyToken, 'ℹ️ 確認可能な直近の食事記録が見つかりませんでした（10分以内に送信された画像のみ変更できます）');
+                            }
+
+                            return;
+                }
         console.log('📝 テキスト内容:', text);
 
         // 体重テキスト判定（例：「体重65.2」）
@@ -135,15 +200,27 @@ const stream = await blobClient.getMessageContent(event.message.id);
           const nutritionEstimate = estimateNutrition(visionResult.estimated_foods);
 
           // Google Sheetsに記録
+          const autoMealSlot = getMealSlotByTime();
           const mealData = {
-            meal_slot: 'lunch',
+  meal_slot: autoMealSlot,
             estimated_foods: visionResult.estimated_foods,
             ...nutritionEstimate,
             confidence: visionResult.confidence,
             memo: `信頼度: ${visionResult.confidence}`,
           };
 
-          await addMealLog(mealData);
+          const sheetResult = await addMealLog(mealData);
+
+                  // 書き込んだ行番号を取得し、時間帯確認の状態を保存（10分間有効）
+                  const updatedRange = sheetResult && sheetResult.updates && sheetResult.updates.updatedRange;
+                  const rowMatch = updatedRange && updatedRange.match(/(\d+)/);
+                  const userId = event.source && event.source.userId;
+                  if (rowMatch && userId) {
+                              pendingMealConfirmations.set(userId, {
+                                            row: parseInt(rowMatch[1], 10),
+                                            expireAt: Date.now() + MEAL_CONFIRM_TTL_MS,
+                              });
+                  }
 
           // 結果をLINEに返信
           const replyText =
@@ -154,9 +231,12 @@ const stream = await blobClient.getMessageContent(event.message.id);
 🥛 タンパク質: ${nutritionEstimate.protein_g}g
 🧈 脂質: ${nutritionEstimate.fat_g}g
 🌾 炭水化物: ${nutritionEstimate.carb_g}g
-📊 信頼度: ${visionResult.confidence}`;
+📊 信頼度: ${visionResult.confidence}
 
-          await replyToUser(event.replyToken, replyText);
+🕐 時間帯: ${autoMealSlot}（自動判定）
+違う場合は下のボタンから選び直してください`;
+
+          await replyWithMealSlotQuickReply(event.replyToken, replyText);
 
         } catch (error) {
           console.error('画像処理エラー:', error.message);
