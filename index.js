@@ -9,6 +9,9 @@ const app = express();
 const client = new messagingApi.MessagingApiClient({
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
 });
+const blobClient = new messagingApi.MessagingApiBlobClient({
+    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+});
 
 // LINE Webhook middleware
 app.use(middleware({
@@ -118,9 +121,12 @@ app.post('/webhook', (req, res) => {
         try {
           // LINEから画像をダウンロード
           console.log('📥 画像をダウンロード中...');
-          const imageBuffer = await client.getMessageContent({
-            messageId: event.message.id,
-          });
+const stream = await blobClient.getMessageContent(event.message.id);
+                  const chunks = [];
+                  for await (const chunk of stream) {
+                              chunks.push(chunk);
+                  }
+                  const imageBuffer = Buffer.concat(chunks);
 
           // Vision APIで食べ物を認識
           const visionResult = await estimateFoodFromImage(imageBuffer);
