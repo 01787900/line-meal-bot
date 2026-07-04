@@ -172,12 +172,17 @@ async function replyToUser(replyToken, text) {
 
 // Webhook endpoint
 app.post('/webhook', (req, res) => {
-  Promise.all(req.body.events.map(async (event) => {
-    console.log('\n========== 新しいメッセージを受け取りました ==========');
-    console.log('イベントタイプ:', event.type);
+  // webhook返信は200を即座に返す
+  res.json({ success: true });
 
-    if (event.type === 'message') {
-      console.log('メッセージタイプ:', event.message.type);
+  // イベント処理は非同期で実行（エラーが発生しても返信には影響しない）
+  Promise.all(req.body.events.map(async (event) => {
+    try {
+      console.log('\n========== 新しいメッセージを受け取りました ==========');
+      console.log('イベントタイプ:', event.type);
+
+      if (event.type === 'message') {
+        console.log('メッセージタイプ:', event.message.type);
 
       // テキストメッセージ処理
       if (event.message.type === 'text') {
@@ -429,12 +434,12 @@ app.post('/webhook', (req, res) => {
         try {
           // LINEから画像をダウンロード
           console.log('📥 画像をダウンロード中...');
-const stream = await blobClient.getMessageContent(event.message.id);
-                  const chunks = [];
-                  for await (const chunk of stream) {
-                              chunks.push(chunk);
-                  }
-                  const imageBuffer = Buffer.concat(chunks);
+          const stream = await blobClient.getMessageContent(event.message.id);
+          const chunks = [];
+          for await (const chunk of stream) {
+            chunks.push(chunk);
+          }
+          const imageBuffer = Buffer.concat(chunks);
 
           // Vision APIで食べ物を認識（確認待ちステータスで返される）
           const visionResult = await estimateFoodFromImage(imageBuffer);
@@ -480,7 +485,7 @@ const stream = await blobClient.getMessageContent(event.message.id);
               confirmMessage += `\n除外したラベル: ${visionResult.excludedLabels.join(', ')}\n`;
             }
 
-            confirmMessage += `\n内容がOKなら「確認」と返信してください。修正する場合は「修正」と返信してください。`;
+            confirmMessage += `\n内容がOKなら「確認」と返信してください。修正する場合は直接料理名を入力してください。`;
 
             await replyToUser(event.replyToken, confirmMessage);
             return;
@@ -495,14 +500,12 @@ const stream = await blobClient.getMessageContent(event.message.id);
           await replyToUser(event.replyToken, `❌ 画像処理に失敗しました: ${error.message}`);
         }
       }
-    }
-
-    return Promise.resolve();
-  }))
-    .then(() => res.json({ success: true }))
+      } catch (eventError) {
+        console.error('❌ イベント処理エラー:', eventError.message);
+      }
+    }))
     .catch(err => {
-      console.error('❌ エラー:', err);
-      res.status(500).end();
+      console.error('❌ Webhook処理エラー:', err);
     });
 });
 
