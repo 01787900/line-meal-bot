@@ -339,26 +339,112 @@ async function addFoodRegistry(foodData) {
 }
 
 /**
+ * 今日のJST日付を YYYY-MM-DD 形式で取得
+ * @param {Date} date - 対象日時（デフォルト: 現在）
+ * @returns {string} JST日付 (例: "2026-07-05")
+ */
+function getTodayJstDateString(date = new Date()) {
+  const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  return jst.toISOString().substring(0, 10);
+}
+
+/**
+ * ヘッダーインデックスマップを使用して安全にセル値を取得
+ * @param {Array} row - 行データ配列
+ * @param {Object} idx - ヘッダーインデックスマップ {header: columnIndex}
+ * @param {string} key - ヘッダー名
+ * @param {*} defaultValue - キーが見つからない場合のデフォルト値
+ * @returns {*} セル値またはデフォルト値
+ */
+function getCell(row, idx, key, defaultValue = "") {
+  const i = idx[key];
+  if (i === undefined || i === null) {
+    return defaultValue;
+  }
+  return row[i] ?? defaultValue;
+}
+
+/**
  * 指定ユーザーの今日のmeal_logsを取得
  * @param {string} userId - LINEユーザーID
  * @returns {Promise<Array>} 本日の食事ログ配列
  */
 async function getTodayMealLogs(userId) {
   try {
-    // TODO: Google Sheets の meal_logs から、
-    // user_id が一致し、
-    // eaten_at が今日のJST日付に該当する行を取得する
-    //
-    // 実装手順：
-    // 1. meal_logs シート全体を取得（全行全列）
-    // 2. header行をスキップ（最初の行）
-    // 3. user_id カラム (E列) と一致する行をフィルタ
-    // 4. eaten_at カラム (X列) の日付部分を抽出してJST今日と比較
-    // 5. status が 'confirmed' または 'corrected' の行のみ抽出
-    // 6. 配列で返す
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'meal_logs!A:X',
+    });
 
-    console.log(`TODO: getTodayMealLogs(${userId}) - Not yet implemented`);
-    return [];
+    const rows = response.data.values || [];
+    if (rows.length <= 1) {
+      return [];
+    }
+
+    // ヘッダーをインデックスマップに変換
+    const headers = rows[0];
+    const idx = Object.fromEntries(
+      headers.map((header, index) => [header, index])
+    );
+
+    // 必須ヘッダーをチェック
+    const requiredHeaders = [
+      "user_id",
+      "confirmed_food",
+      "meal_type",
+      "portion_label",
+      "calories",
+      "protein",
+      "fat",
+      "carbs",
+      "eaten_at",
+      "status"
+    ];
+
+    const missingHeaders = requiredHeaders.filter(h => idx[h] === undefined);
+    if (missingHeaders.length > 0) {
+      console.warn(`⚠️ meal_logs に必要なヘッダーがありません: ${missingHeaders.join(", ")}`);
+      return [];
+    }
+
+    // データ行を処理
+    const todayStr = getTodayJstDateString();
+    const logs = [];
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+
+      // getCell() を使用して安全に値を取得
+      const userIdValue = String(getCell(row, idx, "user_id", ""));
+      const eatenAtValue = String(getCell(row, idx, "eaten_at", ""));
+      const statusValue = String(getCell(row, idx, "status", ""));
+
+      // フィルタ条件
+      const userIdMatch = userIdValue === userId;
+      const eatenDate = eatenAtValue.substring(0, 10);
+      const isToday = eatenDate === todayStr;
+      const isConfirmed = ["confirmed", "corrected"].includes(statusValue);
+
+      if (!userIdMatch || !isToday || !isConfirmed) {
+        continue;
+      }
+
+      logs.push({
+        foodName: String(getCell(row, idx, "confirmed_food", "")),
+        mealType: String(getCell(row, idx, "meal_type", "")),
+        portionLabel: String(getCell(row, idx, "portion_label", "")),
+        calories: Number(getCell(row, idx, "calories", 0)),
+        protein: Number(getCell(row, idx, "protein", 0)),
+        fat: Number(getCell(row, idx, "fat", 0)),
+        carbs: Number(getCell(row, idx, "carbs", 0)),
+        eatenAt: eatenAtValue
+      });
+    }
+
+    // eatenAtでソート（昇順）
+    logs.sort((a, b) => a.eatenAt.localeCompare(b.eatenAt));
+
+    return logs;
   } catch (error) {
     console.error('❌ getTodayMealLogs error:', error.message);
     return [];
@@ -371,33 +457,81 @@ async function getTodayMealLogs(userId) {
  * @returns {Object} 集計結果 {total: {...}, byMealType: {...}}
  */
 function summarizeMealLogs(logs) {
-  // TODO: logs から以下を計算：
-  // 1. 合計 calories, protein, fat, carbs
-  // 2. meal_type (breakfast, lunch, dinner, snack) ごとの小計
-  // 3. 各食事の詳細情報（food name, meal_type, portion_label, calories）
-  //
-  // 戻り値構造例：
-  // {
-  //   total: {
-  //     calories: 1520,
-  //     protein: 65.0,
-  //     fat: 48.0,
-  //     carbs: 205.0
-  //   },
-  //   byMealType: {
-  //     breakfast: { calories: 420, protein: 18, fat: 12, carbs: 45 },
-  //     lunch: { calories: 650, protein: 28, fat: 20, carbs: 90 },
-  //     dinner: { calories: 0, protein: 0, fat: 0, carbs: 0 },
-  //     snack: { calories: 450, protein: 19, fat: 16, carbs: 70 }
-  //   },
-  //   meals: [
-  //     { food: "パスタ", mealType: "snack", label: "普通", calories: 650 },
-  //     { food: "プロテイン", mealType: "snack", label: "普通", calories: 120 }
-  //   ]
-  // }
+  // 初期化
+  const total = {
+    calories: 0,
+    protein: 0.0,
+    fat: 0.0,
+    carbs: 0.0
+  };
 
-  console.log(`TODO: summarizeMealLogs() - Not yet implemented`);
-  return { total: {}, byMealType: {}, meals: [] };
+  const mealTypes = [
+    "breakfast",
+    "lunch",
+    "dinner",
+    "snack",
+    "late_night"
+  ];
+  const byMealType = {};
+  mealTypes.forEach(mt => {
+    byMealType[mt] = {
+      calories: 0,
+      protein: 0.0,
+      fat: 0.0,
+      carbs: 0.0
+    };
+  });
+
+  const meals = [];
+
+  // ログを集計
+  logs.forEach(log => {
+    const cal = log.calories || 0;
+    const prot = log.protein || 0;
+    const f = log.fat || 0;
+    const carb = log.carbs || 0;
+
+    // 合計に加算
+    total.calories += cal;
+    total.protein += prot;
+    total.fat += f;
+    total.carbs += carb;
+
+    // meal_typeごとに加算
+    if (byMealType[log.mealType]) {
+      byMealType[log.mealType].calories += cal;
+      byMealType[log.mealType].protein += prot;
+      byMealType[log.mealType].fat += f;
+      byMealType[log.mealType].carbs += carb;
+    }
+
+    // 食事詳細に追加
+    meals.push({
+      food: log.foodName,
+      mealType: log.mealType,
+      portionLabel: log.portionLabel,
+      calories: cal
+    });
+  });
+
+  // 小数点を揃える（カロリーは整数、PFCは小数点第1位）
+  total.calories = Math.round(total.calories);
+  total.protein = Math.round(total.protein * 10) / 10;
+  total.fat = Math.round(total.fat * 10) / 10;
+  total.carbs = Math.round(total.carbs * 10) / 10;
+
+  Object.keys(byMealType).forEach(mt => {
+    byMealType[mt].calories = Math.round(byMealType[mt].calories);
+    byMealType[mt].protein = Math.round(byMealType[mt].protein * 10) / 10;
+    byMealType[mt].fat = Math.round(byMealType[mt].fat * 10) / 10;
+    byMealType[mt].carbs = Math.round(byMealType[mt].carbs * 10) / 10;
+  });
+
+  return {
+    total,
+    byMealType,
+    meals
+  };
 }
 
 /**
@@ -407,24 +541,50 @@ function summarizeMealLogs(logs) {
  * @returns {string} LINE送信用テキスト
  */
 function formatTodaySummary(summary, userId = '') {
-  // TODO: summary をLINE送信用に整形：
-  //
-  // 出力例：
-  // 今日の食事まとめです。
-  // 合計: 1,520kcal P: 65.0g / F: 48.0g / C: 205.0g
-  //
-  // 内訳:
-  // 朝食: 420kcal
-  // 昼食: 650kcal
-  // 夕食: 0kcal
-  // 間食: 450kcal
-  //
-  // 記録:
-  // ・パスタ / 間食 / 普通 / 650kcal
-  // ・プロテイン / 間食 / 普通 / 120kcal
+  if (!summary || !summary.meals || summary.meals.length === 0) {
+    return "📊 本日の食事まとめ\n\n本日の食事記録はまだありません。\n食事写真を送るか、食品名を入力して記録してください。";
+  }
 
-  console.log(`TODO: formatTodaySummary() - Not yet implemented`);
-  return "今日の食事まとめ機能は準備中です。";
+  const mealTypeNames = {
+    breakfast: "🌅 朝食",
+    lunch: "🌞 昼食",
+    dinner: "🌙 夕食",
+    snack: "🍪 間食",
+    late_night: "🌙 夜食"
+  };
+
+  let message = "📊 本日の食事まとめ\n\n";
+
+  // 合計行
+  message += `合計: ${summary.total.calories}kcal\n`;
+  message += `P: ${summary.total.protein.toFixed(1)}g / `;
+  message += `F: ${summary.total.fat.toFixed(1)}g / `;
+  message += `C: ${summary.total.carbs.toFixed(1)}g\n\n`;
+
+  // 内訳
+  message += "内訳:\n";
+  const mealTypeOrder = ["breakfast", "lunch", "dinner", "snack", "late_night"];
+  mealTypeOrder.forEach(mt => {
+    const cal = summary.byMealType[mt].calories;
+    if (cal > 0) {
+      message += `${mealTypeNames[mt]}: ${cal}kcal\n`;
+    }
+  });
+
+  // 記録
+  message += "\n記録:\n";
+  summary.meals.forEach(meal => {
+    let foodName = meal.food;
+    if (foodName.length > 15) {
+      foodName = foodName.substring(0, 15) + "…";
+    }
+    const mealTypeName = mealTypeNames[meal.mealType] || meal.mealType;
+    // 絵文字部分を除いた時間帯名を取得（"🌅 朝食" → "朝食"）
+    const mealTypeDisplay = mealTypeName.replace(/^[^ ]+ /, "");
+    message += `・${foodName} / ${mealTypeDisplay} / ${meal.portionLabel} / ${meal.calories}kcal\n`;
+  });
+
+  return message;
 }
 
 module.exports = {

@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const { messagingApi, middleware } = require('@line/bot-sdk');
 const { estimateFoodFromImage } = require('./visionEstimate');
-const { addMealLog, appendMealLog, addBodyWeightLog, updateMealSlot, getFoodRegistry, addFoodRegistry } = require('./sheetsWriter');
+const { addMealLog, appendMealLog, addBodyWeightLog, updateMealSlot, getFoodRegistry, addFoodRegistry, getTodayMealLogs, summarizeMealLogs, formatTodaySummary } = require('./sheetsWriter');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const nutritionDb = require('./nutrition-db.json');
 const {
@@ -676,6 +676,28 @@ P: ${adjustedNutrition.protein}g / F: ${adjustedNutrition.fat}g / C: ${adjustedN
               await replyToUser(event.replyToken, safeLineText(`❌ 食品「${trimmedText}」の処理に失敗しました。別の料理名を入力してください。`));
               return;
             }
+          }
+        }
+
+        // *** 日次サマリーコマンド ***
+        const isSummaryCommand =
+          trimmedText === "今日の合計" ||
+          trimmedText === "今日のまとめ" ||
+          trimmedText === "今日の食事" ||
+          trimmedText.includes("今日どれくらい");
+
+        if (!pending && isSummaryCommand) {
+          try {
+            const logs = await getTodayMealLogs(userId);
+            const summary = summarizeMealLogs(logs);
+            const message = formatTodaySummary(summary, userId);
+
+            await replyToUser(event.replyToken, message);
+            return;
+          } catch (error) {
+            console.error('❌ 日次サマリー取得エラー:', error.message);
+            await replyToUser(event.replyToken, safeLineText('❌ サマリー取得に失敗しました。しばらく経ってからお試しください。'));
+            return;
           }
         }
 
