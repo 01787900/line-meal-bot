@@ -282,9 +282,13 @@ app.post('/webhook', (req, res) => {
             try {
               const foodRegistry = await getFoodRegistry();
               const foodName = trimmedText;
-              const nutrition = await estimateNutrition(foodName, foodRegistry);
 
               console.log(`🔄 食品名を修正: ${foodName}`);
+
+              // 修正開始メッセージを即座に返信
+              await replyToUser(event.replyToken, `✏️ 修正を開始します...`);
+
+              const nutrition = await estimateNutrition(foodName, foodRegistry);
 
               // 修正された食品で確認待ちを更新
               const autoMealSlot = getMealSlotByTime();
@@ -308,7 +312,7 @@ app.post('/webhook', (req, res) => {
                 expireAt: Date.now() + MEAL_CONFIRM_TTL_MS,
               });
 
-              const replyText = `🍽️ ${modifiedResult.message}\n\n${foodName}のカロリー: 約${Math.round(nutrition.calorie)}kcal\n\nOKなら「確認」と返信、修正する場合は直接料理名を入力してください。`;
+              const replyText = `✅ 修正しました\n\n🍽️ ${modifiedResult.message}\n\n${foodName}のカロリー: 約${Math.round(nutrition.calorie)}kcal\n\nOKなら「確認」と返信、修正する場合は直接料理名を入力してください。`;
               await replyToUser(event.replyToken, replyText);
               return;
 
