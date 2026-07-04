@@ -1,0 +1,373 @@
+{
+  "rice": {
+    "key": "ご飯",
+    "type": "staple",
+    "category": "grain",
+    "priority": 100,
+    "includes": ["rice", "cooked rice", "white rice", "brown rice", "短粒米"]
+  },
+  "bread": {
+    "key": "パン",
+    "type": "staple",
+    "category": "grain",
+    "priority": 95,
+    "includes": ["bread", "white bread", "whole wheat bread", "食パン"]
+  },
+  "noodle": {
+    "key": "麺",
+    "type": "staple",
+    "category": "grain",
+    "priority": 90,
+    "includes": ["noodle", "pasta", "spaghetti", "udon", "そば", "ラーメン"]
+  },
+  "chicken": {
+    "key": "鶏肉",
+    "type": "protein",
+    "category": "meat",
+    "priority": 100,
+    "includes": ["chicken", "poultry", "鶏", "チキン"]
+  },
+  "chicken_fried": {
+    "key": "鶏の唐揚げ",
+    "type": "protein_processed",
+    "category": "meat",
+    "priority": 110,
+    "includes": ["fried chicken", "karaage", "から揚げ", "唐揚げ"]
+  },
+  "pork": {
+    "key": "豚肉",
+    "type": "protein",
+    "category": "meat",
+    "priority": 95,
+    "includes": ["pork", "豚", "ポーク"]
+  },
+  "pork_cutlet": {
+    "key": "豚カツ",
+    "type": "protein_processed",
+    "category": "meat",
+    "priority": 105,
+    "includes": ["pork cutlet", "tonkatsu", "豚カツ", "とんかつ"]
+  },
+  "beef": {
+    "key": "牛肉",
+    "type": "protein",
+    "category": "meat",
+    "priority": 95,
+    "includes": ["beef", "牛", "ビーフ"]
+  },
+  "beef_bowl": {
+    "key": "牛丼",
+    "type": "complete_meal",
+    "category": "rice_dish",
+    "priority": 105,
+    "includes": ["beef bowl", "gyudon", "牛丼", "牛どん"]
+  },
+  "hamburger": {
+    "key": "ハンバーグ",
+    "type": "protein_processed",
+    "category": "meat",
+    "priority": 100,
+    "includes": ["hamburger", "hamburg", "ハンバーグ"]
+  },
+  "egg": {
+    "key": "卵",
+    "type": "protein",
+    "category": "egg",
+    "priority": 90,
+    "includes": ["egg", "eggs", "卵", "たまご"]
+  },
+  "omelet": {
+    "key": "卵焼き",
+    "type": "protein_processed",
+    "category": "egg",
+    "priority": 95,
+    "includes": ["omelet", "egg roll", "卵焼き", "だし巻き卵"]
+  },
+  "fried_egg": {
+    "key": "目玉焼き",
+    "type": "protein_processed",
+    "category": "egg",
+    "priority": 95,
+    "includes": ["fried egg", "sunny side up", "目玉焼き"]
+  },
+  "vegetable": {
+    "key": "野菜",
+    "type": "vegetable",
+    "category": "vegetable",
+    "priority": 70,
+    "includes": ["vegetable", "vegetable salad", "野菜"]
+  },
+  "broccoli": {
+    "key": "ブロッコリー",
+    "type": "vegetable",
+    "category": "vegetable",
+    "priority": 85,
+    "includes": ["broccoli", "ブロッコリー"]
+  },
+  "cabbage": {
+    "key": "キャベツ",
+    "type": "vegetable",
+    "category": "vegetable",
+    "priority": 85,
+    "includes": ["cabbage", "キャベツ"]
+  },
+  "carrot": {
+    "key": "人参",
+    "type": "vegetable",
+    "category": "vegetable",
+    "priority": 85,
+    "includes": ["carrot", "carrot root", "人参", "にんじん"]
+  },
+  "tomato": {
+    "key": "トマト",
+    "type": "vegetable",
+    "category": "vegetable",
+    "priority": 85,
+    "includes": ["tomato", "tomatoes", "トマト"]
+  },
+  "onion": {
+    "key": "玉ねぎ",
+    "type": "vegetable",
+    "category": "vegetable",
+    "priority": 80,
+    "includes": ["onion", "玉ねぎ", "たまねぎ"]
+  },
+  "potato": {
+    "key": "じゃがいも",
+    "type": "vegetable",
+    "category": "vegetable",
+    "priority": 85,
+    "includes": ["potato", "potatoes", "じゃがいも", "ジャガイモ"]
+  },
+  "sweet_potato": {
+    "key": "さつまいも",
+    "type": "vegetable",
+    "category": "vegetable",
+    "priority": 85,
+    "includes": ["sweet potato", "さつまいも", "薩摩芋"]
+  },
+  "fish": {
+    "key": "魚",
+    "type": "protein",
+    "category": "fish",
+    "priority": 80,
+    "includes": ["fish", "魚"]
+  },
+  "salmon": {
+    "key": "鮭",
+    "type": "protein",
+    "category": "fish",
+    "priority": 95,
+    "includes": ["salmon", "鮭", "さけ"]
+  },
+  "tuna": {
+    "key": "マグロ",
+    "type": "protein",
+    "category": "fish",
+    "priority": 95,
+    "includes": ["tuna", "マグロ", "まぐろ"]
+  },
+  "shrimp": {
+    "key": "エビ",
+    "type": "protein",
+    "category": "seafood",
+    "priority": 95,
+    "includes": ["shrimp", "prawn", "えび", "エビ"]
+  },
+  "sashimi": {
+    "key": "刺身",
+    "type": "protein",
+    "category": "fish",
+    "priority": 100,
+    "includes": ["sashimi", "刺身", "さしみ"]
+  },
+  "sushi": {
+    "key": "寿司",
+    "type": "complete_meal",
+    "category": "rice_dish",
+    "priority": 100,
+    "includes": ["sushi", "寿司", "すし"]
+  },
+  "tempura": {
+    "key": "天ぷら",
+    "type": "fried_food",
+    "category": "prepared_dish",
+    "priority": 100,
+    "includes": ["tempura", "天ぷら", "てんぷら"]
+  },
+  "fry": {
+    "key": "フライ",
+    "type": "fried_food",
+    "category": "prepared_dish",
+    "priority": 95,
+    "includes": ["fried", "fry", "フライ"]
+  },
+  "cheese": {
+    "key": "チーズ",
+    "type": "dairy",
+    "category": "dairy",
+    "priority": 85,
+    "includes": ["cheese", "チーズ"]
+  },
+  "yogurt": {
+    "key": "ヨーグルト",
+    "type": "dairy",
+    "category": "dairy",
+    "priority": 85,
+    "includes": ["yogurt", "yoghurt", "ヨーグルト"]
+  },
+  "milk": {
+    "key": "牛乳",
+    "type": "dairy",
+    "category": "dairy",
+    "priority": 80,
+    "includes": ["milk", "cow milk", "牛乳", "ぎゅうにゅう"]
+  },
+  "butter": {
+    "key": "バター",
+    "type": "fat",
+    "category": "oil_fat",
+    "priority": 75,
+    "includes": ["butter", "バター"]
+  },
+  "oil": {
+    "key": "オリーブオイル",
+    "type": "fat",
+    "category": "oil_fat",
+    "priority": 70,
+    "includes": ["oil", "olive oil", "オリーブオイル"]
+  },
+  "apple": {
+    "key": "りんご",
+    "type": "fruit",
+    "category": "fruit",
+    "priority": 85,
+    "includes": ["apple", "りんご", "林檎"]
+  },
+  "banana": {
+    "key": "バナナ",
+    "type": "fruit",
+    "category": "fruit",
+    "priority": 85,
+    "includes": ["banana", "バナナ"]
+  },
+  "mandarin": {
+    "key": "みかん",
+    "type": "fruit",
+    "category": "fruit",
+    "priority": 85,
+    "includes": ["mandarin", "tangerine", "みかん", "みかん"]
+  },
+  "watermelon": {
+    "key": "スイカ",
+    "type": "fruit",
+    "category": "fruit",
+    "priority": 85,
+    "includes": ["watermelon", "スイカ"]
+  },
+  "strawberry": {
+    "key": "いちご",
+    "type": "fruit",
+    "category": "fruit",
+    "priority": 85,
+    "includes": ["strawberry", "strawberries", "いちご", "イチゴ"]
+  },
+  "grape": {
+    "key": "ぶどう",
+    "type": "fruit",
+    "category": "fruit",
+    "priority": 85,
+    "includes": ["grape", "grapes", "ぶどう", "葡萄"]
+  },
+  "miso_soup": {
+    "key": "味噌汁",
+    "type": "soup",
+    "category": "soup",
+    "priority": 90,
+    "includes": ["miso soup", "味噌汁", "みそ汁"]
+  },
+  "soup": {
+    "key": "スープ",
+    "type": "soup",
+    "category": "soup",
+    "priority": 75,
+    "includes": ["soup", "スープ"]
+  },
+  "cake": {
+    "key": "ケーキ",
+    "type": "dessert",
+    "category": "dessert",
+    "priority": 90,
+    "includes": ["cake", "ケーキ"]
+  },
+  "ice_cream": {
+    "key": "アイスクリーム",
+    "type": "dessert",
+    "category": "dessert",
+    "priority": 90,
+    "includes": ["ice cream", "ice-cream", "アイスクリーム"]
+  },
+  "chocolate": {
+    "key": "チョコレート",
+    "type": "dessert",
+    "category": "dessert",
+    "priority": 85,
+    "includes": ["chocolate", "チョコレート"]
+  },
+  "cookie": {
+    "key": "クッキー",
+    "type": "dessert",
+    "category": "dessert",
+    "priority": 85,
+    "includes": ["cookie", "cookies", "クッキー"]
+  },
+  "donut": {
+    "key": "ドーナツ",
+    "type": "dessert",
+    "category": "dessert",
+    "priority": 85,
+    "includes": ["donut", "doughnut", "ドーナツ"]
+  },
+  "coffee": {
+    "key": "コーヒー",
+    "type": "beverage",
+    "category": "beverage",
+    "priority": 60,
+    "includes": ["coffee", "コーヒー"]
+  },
+  "tea": {
+    "key": "紅茶",
+    "type": "beverage",
+    "category": "beverage",
+    "priority": 60,
+    "includes": ["tea", "black tea", "紅茶", "こうちゃ"]
+  },
+  "juice": {
+    "key": "ジュース",
+    "type": "beverage",
+    "category": "beverage",
+    "priority": 75,
+    "includes": ["juice", "fruit juice", "ジュース"]
+  },
+  "cola": {
+    "key": "コーラ",
+    "type": "beverage",
+    "category": "beverage",
+    "priority": 75,
+    "includes": ["cola", "coke", "コーラ"]
+  },
+  "beer": {
+    "key": "ビール",
+    "type": "beverage",
+    "category": "beverage",
+    "priority": 70,
+    "includes": ["beer", "ビール"]
+  },
+  "wine": {
+    "key": "ワイン",
+    "type": "beverage",
+    "category": "beverage",
+    "priority": 70,
+    "includes": ["wine", "ワイン"]
+  }
+}
