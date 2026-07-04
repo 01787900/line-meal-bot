@@ -293,6 +293,24 @@ async function replyToUser(replyToken, text) {
   }
 }
 
+/**
+ * JST（日本時間）の日付と時刻を YYYY-MM-DD HH:mm:ss 形式で取得
+ * @returns {string} 日本時間の日付・時刻
+ */
+function getJstDateTime() {
+  const now = new Date();
+  const jstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000); // UTC+9
+
+  const year = jstDate.getUTCFullYear();
+  const month = String(jstDate.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(jstDate.getUTCDate()).padStart(2, '0');
+  const hours = String(jstDate.getUTCHours()).padStart(2, '0');
+  const minutes = String(jstDate.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(jstDate.getUTCSeconds()).padStart(2, '0');
+
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}
+
 // Webhook endpoint
 app.post('/webhook', (req, res) => {
   // webhook返信は200を即座に返す
@@ -344,13 +362,15 @@ app.post('/webhook', (req, res) => {
 
                                                             pendingMealConfirmations.delete(userId);
 
-                                                            const replyMsg = `✅ 記録しました\n${foodName}\n時間帯: ${trimmedText}\nカロリー: ${Math.round(nutrition.calorie)}kcal\nP: ${Math.round(nutrition.protein)}g / F: ${Math.round(nutrition.fat)}g / C: ${Math.round(nutrition.carb)}g`;
+                                                            const jstDateTime = getJstDateTime();
+                                                            const replyMsg = `✅ 記録しました\n${foodName}\n時間帯: ${trimmedText}\n記録日時: ${jstDateTime}\nカロリー: ${Math.round(nutrition.calorie)}kcal\nP: ${Math.round(nutrition.protein)}g / F: ${Math.round(nutrition.fat)}g / C: ${Math.round(nutrition.carb)}g`;
                                                             await replyToUser(event.replyToken, replyMsg);
                                                           } else {
                                                             // 既存の updateMealSlot ロジック（互換性維持）
                                                             await updateMealSlot(pending.row, trimmedText);
                                                             pendingMealConfirmations.delete(userId);
-                                                            await replyToUser(event.replyToken, `✅ 食事の時間帯を「${trimmedText}」に更新しました`);
+                                                            const jstDateTime = getJstDateTime();
+                                                            await replyToUser(event.replyToken, `✅ 食事の時間帯を「${trimmedText}」に更新しました\n記録日時: ${jstDateTime}`);
                                                           }
                                           } catch (error) {
                                                           console.error('❌ 時間帯処理エラー:', error.message);
@@ -438,7 +458,8 @@ app.post('/webhook', (req, res) => {
                 expireAt: Date.now() + MEAL_CONFIRM_TTL_MS,
               });
 
-              const replyText = `✅ ${modifiedFoodName}として修正しました。\n次回以降の推定にも反映します。\nカロリー: 約${Math.round(nutrition.calorie)}kcal\n\nOKなら「確認」と返信してください`;
+              const jstDateTime = getJstDateTime();
+              const replyText = `✅ ${modifiedFoodName}として修正しました。\n次回以降の推定にも反映します。\nカロリー: 約${Math.round(nutrition.calorie)}kcal\n記録日時: ${jstDateTime}\n\nOKなら「確認」と返信してください`;
               await replyToUser(event.replyToken, replyText);
               return;
 
@@ -519,12 +540,14 @@ app.post('/webhook', (req, res) => {
               await addFoodRegistry(foodReg.data);
               pendingFoodRegistrations.delete(userId);
 
+              const jstDateTime = getJstDateTime();
               await replyToUser(event.replyToken,
                 `✅ 食品「${foodReg.data.foodName}」を登録しました！
 カロリー: ${foodReg.data.calorie}kcal
 タンパク質: ${foodReg.data.protein}g
 脂質: ${foodReg.data.fat}g
 炭水化物: ${foodReg.data.carb}g
+記録日時: ${jstDateTime}
 
 今後、この食品を入力すると登録されたカロリーが使用されます。`);
               return;
@@ -545,7 +568,8 @@ app.post('/webhook', (req, res) => {
 
           try {
             await addBodyWeightLog(weight, '');
-            await replyToUser(event.replyToken, `✅ 体重 ${weight}kg を記録しました`);
+            const jstDateTime = getJstDateTime();
+            await replyToUser(event.replyToken, `✅ 体重 ${weight}kg を記録しました\n記録日時: ${jstDateTime}`);
           } catch (error) {
             console.error('体重記録エラー:', error.message);
             await replyToUser(event.replyToken, '❌ 体重記録に失敗しました');
@@ -644,7 +668,8 @@ app.post('/webhook', (req, res) => {
                 ? `\n\n候補:\n${candidates.map((c, i) => `${i + 1}. ${c}`).join('\n')}`
                 : '';
 
-              const confirmMessage = `食事を「${finalFoodName}」として推定しました。\n信頼度: ${Math.round(confidence * 100)}%\n\nこの内容で記録する場合は「確認」と送ってください。\n違う場合は、正しい料理名を送ってください。${candidatesText}`;
+              const jstDateTime = getJstDateTime();
+              const confirmMessage = `食事を「${finalFoodName}」として推定しました。\n信頼度: ${Math.round(confidence * 100)}%\n記録日時: ${jstDateTime}\n\nこの内容で記録する場合は「確認」と送ってください。\n違う場合は、正しい料理名を送ってください。${candidatesText}`;
 
               await replyToUser(event.replyToken, confirmMessage);
               return;
