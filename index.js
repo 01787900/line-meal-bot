@@ -2,9 +2,16 @@ require('dotenv').config();
 const express = require('express');
 const { messagingApi, middleware } = require('@line/bot-sdk');
 const { estimateFoodFromImage } = require('./visionEstimate');
-const { addMealLog, addBodyWeightLog, updateMealSlot, getFoodRegistry, addFoodRegistry } = require('./sheetsWriter');
+const { addMealLog, appendMealLog, addBodyWeightLog, updateMealSlot, getFoodRegistry, addFoodRegistry } = require('./sheetsWriter');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const nutritionDb = require('./nutrition-db.json');
+const {
+  filterIgnoredLabels,
+  createLabelsKey,
+  generateCandidatesFromLabels,
+  findLearnedFood,
+  updateLearnedFood,
+} = require('./foodProcessing');
 
 // Gemini API初期化
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_KEY);
@@ -72,6 +79,85 @@ app.use(middleware({
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 }));
+
+/**
+ * 新しいフロー：learnedFoods → candidateRules → Gemini による食品推定
+ * @param {Array} visionLabels - Vision API で検出されたラベル配列（description プロパティを持つオブジェクト）
+ * @returns {Object} {foodName, confidence, source, candidates}
+ */
+async function refineFoodWithLearning(visionLabels) {
+  try {
+    console.log('📋 新フロー: learnedFoods → candidateRules → Gemini');
+
+    // Step 1: ラベルを正規化
+    const labelStrings = visionLabels.map(l => l.description || l);
+    const filtered = filterIgnoredLabels(labelStrings);
+    const labelsKey = createLabelsKey(filtered);
+
+    console.log(`ℹ️  フィルター後ラベル: ${filtered.join(', ')}`);
+    console.log(`ℹ️  ラベルキー: ${labelsKey}`);
+
+    // Step 2: learnedFoods から検索
+    const learned = findLearnedFood(filtered);
+    if (learned) {
+      console.log(`✅ learnedFoodsで見つかりました: ${learned.correct_food}`);
+      return {
+        foodName: learned.correct_food,
+        confidence: learned.confidence,
+        source: 'learned',
+        candidates: [learned.correct_food],
+      };
+    }
+
+    // Step 3: candidateRules から候補生成
+    const candidates = generateCandidatesFromLabels(filtered);
+    console.log(`ℹ️  候補: ${candidates.join(', ')}`);
+
+    // Step 4: Gemini で候補から選択
+    let finalFood = candidates[0]; // デフォルトは第1候補
+    let confidence = 0.7;
+
+    if (candidates.length > 1) {
+      try {
+        const candidatesText = candidates.map((c, i) => `${i + 1}. ${c}`).join('\n');
+        const prompt = `以下の候補の中から、最も適切な料理を1つだけ選んでください。
+
+候補：
+${candidatesText}
+
+選んだ料理名のみを返してください。`;
+
+        const result = await model.generateContent(prompt);
+        const selected = result.response.text().trim();
+
+        if (candidates.includes(selected)) {
+          finalFood = selected;
+          confidence = 0.85;
+        }
+      } catch (error) {
+        console.warn('⚠️  Gemini候補選択エラー:', error.message);
+        // エラー時はデフォルトの候補を使用
+      }
+    }
+
+    console.log(`🎯 推定結果: ${finalFood} (信頼度: ${confidence})`);
+
+    return {
+      foodName: finalFood,
+      confidence,
+      source: 'estimated',
+      candidates,
+    };
+  } catch (error) {
+    console.error('❌ 食品推定エラー:', error.message);
+    return {
+      foodName: '不明',
+      confidence: 0,
+      source: 'error',
+      candidates: [],
+    };
+  }
+}
 
 /**
  * Vision API の結果を Gemini で精査して、正確な料理名に改善
@@ -255,102 +341,85 @@ app.post('/webhook', (req, res) => {
         if (pending && pending.status === 'food_confirmation_pending' && pending.expireAt > Date.now()) {
           // 確認待ちステータス中の処理
           if (confirmText === '確認' || confirmText === 'ok' || confirmText === 'ｏｋ') {
-            // ユーザーが「確認」と返信した場合：ビジョン推定を保存
+            // ユーザーが「確認」と返信した場合：新フォーマットで食事ログを保存
             try {
               const visionResult = pending.visionResult;
-              const foodRegistry = await getFoodRegistry();
+              const foodName = visionResult.selectedCandidates[0].foodName;
+              const nutrition = visionResult.nutrition;
 
-              // 選択された食べ物の栄養値を推定
-              const selectedFoodNames = visionResult.selectedCandidates.map(c => c.foodName).join(',');
-              const nutritionEstimate = await estimateNutrition(selectedFoodNames, foodRegistry);
+              console.log(`✅ 食事を確認しました: ${foodName}`);
 
-              // Google Sheetsに記録
-              const autoMealSlot = getMealSlotByTime();
-              const mealData = {
-                meal_slot: autoMealSlot,
-                estimated_foods: selectedFoodNames,
-                estimated_calorie: nutritionEstimate.calorie,
-                protein_g: nutritionEstimate.protein,
-                fat_g: nutritionEstimate.fat,
-                carb_g: nutritionEstimate.carb,
-                confidence: 'confirmed',
-                memo: `確認: ${visionResult.selectedCandidates.map(c => c.foodName).join(', ')}`,
-              };
-
-              const sheetResult = await addMealLog(mealData);
-
-              // 書き込んだ行番号を取得し、時間帯確認の状態を保存（10分間有効）
-              const updatedRange = sheetResult && sheetResult.updates && sheetResult.updates.updatedRange;
-              const rowMatch = updatedRange && updatedRange.match(/(\d+)/);
-              if (rowMatch && userId) {
-                pendingMealConfirmations.set(userId, {
-                  row: parseInt(rowMatch[1], 10),
-                  expireAt: Date.now() + MEAL_CONFIRM_TTL_MS,
-                });
-              }
+              // 新フォーマットで appendMealLog に保存
+              await appendMealLog({
+                userId,
+                detectedLabels: visionResult.detectedLabels || [],
+                estimatedFood: visionResult.selectedCandidates[0].foodName,
+                confirmedFood: foodName,
+                confidence: visionResult.selectedCandidates[0].confidence || 0.7,
+                portion: visionResult.portion || 1.0,
+                nutrition,
+                source: visionResult.source || 'image',
+                status: 'confirmed',
+              });
 
               // 確認待ちステータスを削除
               pendingMealConfirmations.delete(userId);
 
               // 結果をLINEに返信
-              const replyText =
-`✅ 食事を記録しました！
-
-🍽️  推定食品: ${selectedFoodNames}
-🔥 カロリー: ${Math.round(nutritionEstimate.calorie)}kcal
-🥛 タンパク質: ${Math.round(nutritionEstimate.protein * 10) / 10}g
-🧈 脂質: ${Math.round(nutritionEstimate.fat * 10) / 10}g
-🌾 炭水化物: ${Math.round(nutritionEstimate.carb * 10) / 10}g
-
-🕐 時間帯: ${autoMealSlot}（自動判定）
-違う場合は下のボタンから選び直してください`;
-
-              await replyWithMealSlotQuickReply(event.replyToken, replyText);
+              const replyText = `✅ 記録しました\n${foodName}\nカロリー: ${Math.round(nutrition.calorie)}kcal\nP: ${Math.round(nutrition.protein)}g / F: ${Math.round(nutrition.fat)}g / C: ${Math.round(nutrition.carb)}g`;
+              await replyToUser(event.replyToken, replyText);
               return;
 
             } catch (error) {
-              console.error('食事確認エラー:', error.message);
-              await replyToUser(event.replyToken, '❌ 食事の確認に失敗しました');
+              console.error('❌ 食事確認エラー:', error.message);
+              await replyToUser(event.replyToken, '❌ 食事の記録に失敗しました');
               return;
             }
           } else {
             // 「確認」以外のテキスト → 食品名として処理し、修正食品で確認待ちに戻す
             try {
               const foodRegistry = await getFoodRegistry();
-              const foodName = trimmedText;
+              const modifiedFoodName = trimmedText;
+              const originalFood = pending.visionResult.selectedCandidates[0].foodName;
+              const detectedLabels = pending.visionResult.detectedLabels || [];
 
-              console.log(`🔄 食品名を修正: ${foodName}`);
+              console.log(`🔄 食品名を修正: ${originalFood} → ${modifiedFoodName}`);
 
-              const nutrition = await estimateNutrition(foodName, foodRegistry);
+              // 修正内容を learnedFoods に記録
+              if (detectedLabels.length > 0) {
+                updateLearnedFood(detectedLabels, originalFood, modifiedFoodName);
+              }
+
+              // 栄養値の推定
+              const nutrition = await estimateNutrition(modifiedFoodName, foodRegistry);
 
               // 修正された食品で確認待ちを更新
-              const autoMealSlot = getMealSlotByTime();
               const modifiedResult = {
                 status: 'needs_confirmation',
-                selectedCandidates: [{ foodName: foodName }],
-                alternativeCandidates: [],
-                excludedLabels: [],
-                portion: 'normal',
-                portionLabel: '普通盛り前提',
-                message: `${foodName}として修正しました。量は普通盛り前提です。内容を確認してください。`,
+                selectedCandidates: [{ foodName: modifiedFoodName, confidence: 1.0 }],
+                alternativeCandidates: pending.visionResult.alternativeCandidates || [],
+                excludedLabels: pending.visionResult.excludedLabels || [],
+                portion: pending.visionResult.portion || 1.0,
+                portionLabel: pending.visionResult.portionLabel || '普通盛り',
+                detectedLabels,
+                source: 'corrected',
+                nutrition,
               };
 
               // 確認待ちデータを更新
               pendingMealConfirmations.set(userId, {
                 status: 'food_confirmation_pending',
                 visionResult: modifiedResult,
-                foodName: foodName,
-                nutrition: nutrition,
                 createdAt: Date.now(),
                 expireAt: Date.now() + MEAL_CONFIRM_TTL_MS,
               });
 
-              const replyText = `✅ 修正しました\n${foodName}のカロリー: 約${Math.round(nutrition.calorie)}kcal\n\nOKなら「確認」と返信してください`;
+              const replyText = `✅ ${modifiedFoodName}として修正しました。\n次回以降の推定にも反映します。\nカロリー: 約${Math.round(nutrition.calorie)}kcal\n\nOKなら「確認」と返信してください`;
               await replyToUser(event.replyToken, replyText);
               return;
 
             } catch (error) {
-              console.error('食品修正エラー:', error.message);
+              console.error('❌ 食品修正エラー:', error.message);
               await replyToUser(event.replyToken, `❌ 食品「${trimmedText}」の処理に失敗しました。別の料理名を入力してください。`);
               return;
             }
@@ -490,18 +559,18 @@ app.post('/webhook', (req, res) => {
           }
 
           if (visionResult.status === 'needs_confirmation') {
-            // 確認待ちステータス：Gemini で精査してから表示
-            console.log('📋 Vision結果をGeminiで精査中...');
+            // 確認待ちステータス：新フロー（learnedFoods → candidateRules → Gemini）で推定
+            console.log('📋 新フロー: learnedFoods → candidateRules → Gemini中...');
 
             try {
-              // Vision API のラベルをもとに Gemini で料理名を精査
-              const rawLabels = visionResult.detectedLabels || [];
-              const refinedFoodName = await refineVisualRecognitionWithGemini(rawLabels);
+              // Vision API のラベルをもとに新フローで推定
+              const rawLabels = visionResult.selectedCandidates.map(c => ({ description: c.foodName })) ||
+                               visionResult.detectedLabels || [];
 
-              // Gemini の精査結果を使用
-              let finalFoodName = refinedFoodName || visionResult.selectedCandidates[0].foodName;
+              const result = await refineFoodWithLearning(rawLabels);
+              const { foodName: finalFoodName, candidates, source, confidence } = result;
 
-              console.log(`🎯 最終決定: ${finalFoodName}`);
+              console.log(`🎯 最終決定: ${finalFoodName} (source: ${source}, confidence: ${confidence})`);
 
               // 栄養値を推定
               const foodRegistry = await getFoodRegistry();
@@ -511,12 +580,14 @@ app.post('/webhook', (req, res) => {
               const userId = event.source && event.source.userId;
               const modifiedResult = {
                 status: 'needs_confirmation',
-                selectedCandidates: [{ foodName: finalFoodName }],
-                alternativeCandidates: [],
-                excludedLabels: [],
-                portion: 'normal',
-                portionLabel: '普通盛り前提',
-                message: `${finalFoodName}として分類しました。量は普通盛り前提です。内容を確認してください。`,
+                selectedCandidates: [{ foodName: finalFoodName, confidence }],
+                alternativeCandidates: candidates.slice(1, 5).map(c => ({ foodName: c })),
+                excludedLabels: visionResult.excludedLabels || [],
+                portion: 1.0,
+                portionLabel: '普通盛り',
+                detectedLabels: visionResult.detectedLabels || [],
+                source,
+                nutrition,
               };
 
               if (userId) {
@@ -528,15 +599,18 @@ app.post('/webhook', (req, res) => {
                 });
               }
 
-              // ユーザーに確認メッセージを返信
-              const confirmMessage = `${finalFoodName}として分類しました\nカロリー: 約${Math.round(nutrition.calorie)}kcal\n\nOKなら「確認」と返信してください`;
+              // ユーザーに確認メッセージを返信（候補表示）
+              const candidatesText = candidates.length > 1
+                ? `\n\n候補:\n${candidates.map((c, i) => `${i + 1}. ${c}`).join('\n')}`
+                : '';
+
+              const confirmMessage = `${finalFoodName}として推定しました。\n信頼度: ${Math.round(confidence * 100)}%\nカロリー: 約${Math.round(nutrition.calorie)}kcal\n\nOKなら「確認」と返信してください。\n違う場合は正しい料理名を送ってください。${candidatesText}`;
 
               await replyToUser(event.replyToken, confirmMessage);
               return;
             } catch (error) {
-              console.error('Gemini精査エラー:', error.message);
-              // エラー時はユーザーに料理名を直接入力するよう促す
-              await replyToUser(event.replyToken, '料理の認識に確信が持てません。正確な料理名を直接入力してください。');
+              console.error('❌ 食品推定エラー:', error.message);
+              await replyToUser(event.replyToken, '料理の推定に失敗しました。正確な料理名を直接入力してください。');
               return;
             }
           }

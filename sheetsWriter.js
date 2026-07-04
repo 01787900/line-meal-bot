@@ -28,6 +28,71 @@ function generateLogId() {
 }
 
 /**
+ * 新フォーマットで食事ログを Google Sheets の meal_logs に追加
+ *
+ * カラム構成：
+ * A: log_id, B: timestamp, C: user_id, D: detected_labels, E: estimated_food,
+ * F: confirmed_food, G: confidence, H: portion, I: calories, J: protein, K: fat, L: carbs, M: source, N: status
+ *
+ * @param {Object} params - 食事ログパラメータ
+ * @param {string} params.userId - LINEユーザーID
+ * @param {Array} params.detectedLabels - Vision APIのラベル配列
+ * @param {string} params.estimatedFood - AI推定食品名
+ * @param {string} params.confirmedFood - ユーザー確認・修正食品名
+ * @param {number} params.confidence - 推定信頼度（0-1）
+ * @param {number} params.portion - 分量（デフォルト: 1.0）
+ * @param {Object} params.nutrition - 栄養情報 {calorie, protein, fat, carb}
+ * @param {string} params.source - 入力源（image, text, manual, learned）
+ * @param {string} params.status - ステータス（pending, confirmed, corrected）
+ */
+async function appendMealLog(params) {
+  const now = new Date();
+  const logId = generateLogId();
+  const timestamp = now.toISOString();
+
+  const detectedLabelsStr = Array.isArray(params.detectedLabels)
+    ? params.detectedLabels.join(',')
+    : params.detectedLabels || '';
+
+  const values = [
+    [
+      logId,
+      timestamp,
+      params.userId || '',
+      detectedLabelsStr,
+      params.estimatedFood || '',
+      params.confirmedFood || params.estimatedFood || '',
+      Math.round(params.confidence * 100) / 100 || 0,
+      params.portion || 1.0,
+      Math.round(params.nutrition?.calorie || 0),
+      Math.round((params.nutrition?.protein || 0) * 10) / 10,
+      Math.round((params.nutrition?.fat || 0) * 10) / 10,
+      Math.round((params.nutrition?.carb || 0) * 10) / 10,
+      params.source || 'manual',
+      params.status || 'pending',
+    ],
+  ];
+
+  try {
+    console.log('📝 新フォーマットで食事ログを記録中...');
+
+    const response = await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'meal_logs!A:N',
+      valueInputOption: 'USER_ENTERED',
+      resource: { values },
+    });
+
+    console.log(`✅ 食事ログを追加しました (log_id: ${logId})`);
+    return { logId, ...response.data };
+
+  } catch (error) {
+    console.error('❌ 新フォーマットシート書き込みエラー:', error.message);
+    throw new Error(`食事ログ記録失敗: ${error.message}`);
+  }
+}
+
+/**
  * 食事ログを Google Sheets の meal_logs シートに追加
  *
  * カラム構成：
@@ -225,4 +290,12 @@ async function addFoodRegistry(foodData) {
   }
 }
 
-module.exports = { addMealLog, addBodyWeightLog, generateLogId, updateMealSlot, getFoodRegistry, addFoodRegistry };
+module.exports = {
+  addMealLog,
+  appendMealLog,
+  addBodyWeightLog,
+  generateLogId,
+  updateMealSlot,
+  getFoodRegistry,
+  addFoodRegistry
+};
