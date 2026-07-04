@@ -8,7 +8,7 @@ const nutritionDb = require('./nutrition-db.json');
 
 // Gemini API初期化
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
 
 const app = express();
 const client = new messagingApi.MessagingApiClient({
@@ -345,7 +345,7 @@ app.post('/webhook', (req, res) => {
                 expireAt: Date.now() + MEAL_CONFIRM_TTL_MS,
               });
 
-              const replyText = `✅ 修正しました\n\n🍽️ ${modifiedResult.message}\n\n${foodName}のカロリー: 約${Math.round(nutrition.calorie)}kcal\n\nOKなら「確認」と返信、修正する場合は直接料理名を入力してください。`;
+              const replyText = `✅ 修正しました\n${foodName}のカロリー: 約${Math.round(nutrition.calorie)}kcal\n\nOKなら「確認」と返信してください`;
               await replyToUser(event.replyToken, replyText);
               return;
 
@@ -529,7 +529,7 @@ app.post('/webhook', (req, res) => {
               }
 
               // ユーザーに確認メッセージを返信
-              const confirmMessage = `🍽️ ${modifiedResult.message}\n\n🔥 推定カロリー: 約${Math.round(nutrition.calorie)}kcal\n\n内容がOKなら「確認」と返信、修正する場合は直接料理名を入力してください。`;
+              const confirmMessage = `${finalFoodName}として分類しました\nカロリー: 約${Math.round(nutrition.calorie)}kcal\n\nOKなら「確認」と返信してください`;
 
               await replyToUser(event.replyToken, confirmMessage);
               return;
