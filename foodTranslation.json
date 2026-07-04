@@ -3,36 +3,36 @@
     "key": "炒飯",
     "type": "dish",
     "category": "main",
-    "priority": 115,
-    "includes": ["rice", "egg", "vegetable", "carrot", "pea", "pork", "chicken", "ham"]
+    "priority": 90,
+    "includes": ["fried rice", "fried", "炒飯", "chahan"]
   },
   "ramen": {
     "key": "ラーメン",
     "type": "dish",
     "category": "main",
-    "priority": 120,
-    "includes": ["noodle", "soup", "pork", "egg", "vegetable", "broth"]
+    "priority": 95,
+    "includes": ["ramen", "ramens", "ラーメン", "らーめん", "noodle soup", "noodles"]
   },
   "spaghetti": {
     "key": "パスタ",
     "type": "dish",
     "category": "main",
-    "priority": 110,
-    "includes": ["noodle", "pasta", "tomato", "meat", "vegetable", "cheese"]
+    "priority": 85,
+    "includes": ["pasta", "spaghetti", "パスタ"]
   },
   "curry_rice": {
     "key": "カレーライス",
     "type": "dish",
     "category": "main",
-    "priority": 115,
-    "includes": ["rice", "curry", "beef", "pork", "chicken", "vegetable", "potato", "onion"]
+    "priority": 90,
+    "includes": ["curry", "カレー", "curry rice"]
   },
   "rice_bowl": {
     "key": "丼",
     "type": "dish",
     "category": "main",
-    "priority": 110,
-    "includes": ["rice", "egg", "chicken", "beef", "pork", "fish", "vegetable"]
+    "priority": 85,
+    "includes": ["bowl", "丼", "donburi"]
   },
   "rice": {
     "key": "ご飯",
@@ -94,7 +94,7 @@
     "key": "牛丼",
     "type": "dish",
     "category": "rice_dish",
-    "priority": 105,
+    "priority": 88,
     "includes": ["beef bowl", "gyudon", "牛丼", "牛どん"]
   },
   "hamburger": {
@@ -220,7 +220,7 @@
     "key": "寿司",
     "type": "dish",
     "category": "rice_dish",
-    "priority": 100,
+    "priority": 85,
     "includes": ["sushi", "寿司", "すし"]
   },
   "tempura": {

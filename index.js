@@ -78,6 +78,7 @@ app.use(middleware({
 async function estimateNutritionByGemini(foodName) {
   try {
     console.log(`🤖 Gemini APIで "${foodName}" のカロリーを推定中...`);
+    console.log(`🔑 Gemini APIキーが設定されているか: ${process.env.GOOGLE_GENERATIVE_AI_KEY ? '✅ 設定済み' : '❌ 未設定'}`);
 
     const prompt = `以下の食品のカロリーと栄養成分（タンパク質、脂肪、炭水化物）を推定してください。
 
@@ -149,7 +150,9 @@ async function estimateNutrition(foodName, foodRegistry = {}) {
 
   // Step 3: Gemini APIで推定
   console.log(`⚠️  DBに見つかりません。Gemini APIで推定します...`);
-  return await estimateNutritionByGemini(foodName);
+  const geminiResult = await estimateNutritionByGemini(foodName);
+  console.log(`🎯 Gemini APIから取得した推定値: ${JSON.stringify(geminiResult)}`);
+  return geminiResult;
 }
 
 /**
