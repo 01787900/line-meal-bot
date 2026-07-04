@@ -32,7 +32,7 @@ function generateLogId() {
  *
  * カラム構成：
  * A: log_id, B: timestamp, C: user_id, D: detected_labels, E: estimated_food,
- * F: confirmed_food, G: confidence, H: portion, I: calories, J: protein, K: fat, L: carbs, M: source, N: status
+ * F: confirmed_food, G: confidence, H: portion, I: calories, J: protein, K: fat, L: carbs, M: source, N: status, O: meal_slot
  *
  * @param {Object} params - 食事ログパラメータ
  * @param {string} params.userId - LINEユーザーID
@@ -44,6 +44,7 @@ function generateLogId() {
  * @param {Object} params.nutrition - 栄養情報 {calorie, protein, fat, carb}
  * @param {string} params.source - 入力源（image, text, manual, learned）
  * @param {string} params.status - ステータス（pending, confirmed, corrected）
+ * @param {string} params.meal_slot - 食事の時間帯（朝食, 昼食, 夕食, 間食）
  */
 async function appendMealLog(params) {
   const now = new Date();
@@ -70,6 +71,7 @@ async function appendMealLog(params) {
       Math.round((params.nutrition?.carb || 0) * 10) / 10,
       params.source || 'manual',
       params.status || 'pending',
+      params.meal_slot || '',
     ],
   ];
 
@@ -78,7 +80,7 @@ async function appendMealLog(params) {
 
     const response = await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
-      range: 'meal_logs!A:N',
+      range: 'meal_logs!A:O',
       valueInputOption: 'USER_ENTERED',
       resource: { values },
     });

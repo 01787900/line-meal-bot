@@ -319,12 +319,41 @@ app.post('/webhook', (req, res) => {
 
                             if (pending && pending.expireAt > Date.now()) {
                                           try {
-                                                          await updateMealSlot(pending.row, trimmedText);
-                                                          pendingMealConfirmations.delete(userId);
-                                                          await replyToUser(event.replyToken, `✅ 食事の時間帯を「${trimmedText}」に更新しました`);
+                                                          // meal_slot_pending ステータスの場合：新フォーマットで記録を実行
+                                                          if (pending.status === 'meal_slot_pending') {
+                                                            const visionResult = pending.visionResult;
+                                                            const foodName = visionResult.selectedCandidates[0].foodName;
+                                                            const nutrition = visionResult.nutrition;
+
+                                                            console.log(`🕐 時間帯を選択: ${trimmedText}`);
+
+                                                            // 新フォーマットで appendMealLog に保存
+                                                            await appendMealLog({
+                                                              userId,
+                                                              detectedLabels: visionResult.detectedLabels || [],
+                                                              estimatedFood: visionResult.selectedCandidates[0].foodName,
+                                                              confirmedFood: foodName,
+                                                              confidence: visionResult.selectedCandidates[0].confidence || 0.7,
+                                                              portion: visionResult.portion || 1.0,
+                                                              nutrition,
+                                                              source: visionResult.source || 'image',
+                                                              status: 'confirmed',
+                                                              meal_slot: trimmedText,
+                                                            });
+
+                                                            pendingMealConfirmations.delete(userId);
+
+                                                            const replyMsg = `✅ 記録しました\n${foodName}\n時間帯: ${trimmedText}\nカロリー: ${Math.round(nutrition.calorie)}kcal\nP: ${Math.round(nutrition.protein)}g / F: ${Math.round(nutrition.fat)}g / C: ${Math.round(nutrition.carb)}g`;
+                                                            await replyToUser(event.replyToken, replyMsg);
+                                                          } else {
+                                                            // 既存の updateMealSlot ロジック（互換性維持）
+                                                            await updateMealSlot(pending.row, trimmedText);
+                                                            pendingMealConfirmations.delete(userId);
+                                                            await replyToUser(event.replyToken, `✅ 食事の時間帯を「${trimmedText}」に更新しました`);
+                                                          }
                                           } catch (error) {
-                                                          console.error('時間帯更新エラー:', error.message);
-                                                          await replyToUser(event.replyToken, '❌ 時間帯の更新に失敗しました');
+                                                          console.error('❌ 時間帯処理エラー:', error.message);
+                                                          await replyToUser(event.replyToken, '❌ 時間帯の処理に失敗しました');
                                           }
                             } else {
                                           await replyToUser(event.replyToken, 'ℹ️ 確認可能な直近の食事記録が見つかりませんでした（10分以内に送信された画像のみ変更できます）');
@@ -341,33 +370,27 @@ app.post('/webhook', (req, res) => {
         if (pending && pending.status === 'food_confirmation_pending' && pending.expireAt > Date.now()) {
           // 確認待ちステータス中の処理
           if (confirmText === '確認' || confirmText === 'ok' || confirmText === 'ｏｋ') {
-            // ユーザーが「確認」と返信した場合：新フォーマットで食事ログを保存
+            // ユーザーが「確認」と返信した場合：時間帯確認フロー
             try {
               const visionResult = pending.visionResult;
               const foodName = visionResult.selectedCandidates[0].foodName;
-              const nutrition = visionResult.nutrition;
 
               console.log(`✅ 食事を確認しました: ${foodName}`);
 
-              // 新フォーマットで appendMealLog に保存
-              await appendMealLog({
-                userId,
-                detectedLabels: visionResult.detectedLabels || [],
-                estimatedFood: visionResult.selectedCandidates[0].foodName,
-                confirmedFood: foodName,
-                confidence: visionResult.selectedCandidates[0].confidence || 0.7,
-                portion: visionResult.portion || 1.0,
-                nutrition,
-                source: visionResult.source || 'image',
-                status: 'confirmed',
+              // 時間帯確認用のクイックリプライを送信
+              await replyWithMealSlotQuickReply(
+                event.replyToken,
+                `${foodName} を記録します。\n食べた時間帯を選んでください。`
+              );
+
+              // pendingMealConfirmations を更新（時間帯確認待ちに）
+              pendingMealConfirmations.set(userId, {
+                status: 'meal_slot_pending',
+                visionResult: visionResult,
+                createdAt: Date.now(),
+                expireAt: Date.now() + MEAL_CONFIRM_TTL_MS,
               });
 
-              // 確認待ちステータスを削除
-              pendingMealConfirmations.delete(userId);
-
-              // 結果をLINEに返信
-              const replyText = `✅ 記録しました\n${foodName}\nカロリー: ${Math.round(nutrition.calorie)}kcal\nP: ${Math.round(nutrition.protein)}g / F: ${Math.round(nutrition.fat)}g / C: ${Math.round(nutrition.carb)}g`;
-              await replyToUser(event.replyToken, replyText);
               return;
 
             } catch (error) {
