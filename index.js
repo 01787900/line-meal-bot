@@ -507,9 +507,10 @@ app.post('/webhook', (req, res) => {
           await replyToUser(event.replyToken, `❌ 画像処理に失敗しました: ${error.message}`);
         }
       }
-      } catch (eventError) {
-        console.error('❌ イベント処理エラー:', eventError.message);
       }
+    } catch (eventError) {
+      console.error('❌ イベント処理エラー:', eventError.message);
+    }
     }))
     .catch(err => {
       console.error('❌ Webhook処理エラー:', err);
