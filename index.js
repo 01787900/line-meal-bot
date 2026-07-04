@@ -9,7 +9,7 @@ const nutritionDb = require('./nutrition-db.json');
 // Gemini API初期化
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_KEY);
 const model = genAI.getGenerativeModel({
-  model: 'gemini-2.0-flash',
+  model: 'gemini-flash-lite-latest',
   apiVersion: 'v1'
 });
 
