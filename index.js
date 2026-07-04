@@ -8,7 +8,10 @@ const nutritionDb = require('./nutrition-db.json');
 
 // Gemini API初期化
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+const model = genAI.getGenerativeModel({
+  model: 'gemini-1.5-flash',
+  apiVersion: 'v1'
+});
 
 const app = express();
 const client = new messagingApi.MessagingApiClient({
