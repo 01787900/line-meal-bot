@@ -338,6 +338,95 @@ async function addFoodRegistry(foodData) {
   }
 }
 
+/**
+ * 指定ユーザーの今日のmeal_logsを取得
+ * @param {string} userId - LINEユーザーID
+ * @returns {Promise<Array>} 本日の食事ログ配列
+ */
+async function getTodayMealLogs(userId) {
+  try {
+    // TODO: Google Sheets の meal_logs から、
+    // user_id が一致し、
+    // eaten_at が今日のJST日付に該当する行を取得する
+    //
+    // 実装手順：
+    // 1. meal_logs シート全体を取得（全行全列）
+    // 2. header行をスキップ（最初の行）
+    // 3. user_id カラム (E列) と一致する行をフィルタ
+    // 4. eaten_at カラム (X列) の日付部分を抽出してJST今日と比較
+    // 5. status が 'confirmed' または 'corrected' の行のみ抽出
+    // 6. 配列で返す
+
+    console.log(`TODO: getTodayMealLogs(${userId}) - Not yet implemented`);
+    return [];
+  } catch (error) {
+    console.error('❌ getTodayMealLogs error:', error.message);
+    return [];
+  }
+}
+
+/**
+ * 食事ログを集計（合計とmeal_type別小計）
+ * @param {Array} logs - 食事ログ配列
+ * @returns {Object} 集計結果 {total: {...}, byMealType: {...}}
+ */
+function summarizeMealLogs(logs) {
+  // TODO: logs から以下を計算：
+  // 1. 合計 calories, protein, fat, carbs
+  // 2. meal_type (breakfast, lunch, dinner, snack) ごとの小計
+  // 3. 各食事の詳細情報（food name, meal_type, portion_label, calories）
+  //
+  // 戻り値構造例：
+  // {
+  //   total: {
+  //     calories: 1520,
+  //     protein: 65.0,
+  //     fat: 48.0,
+  //     carbs: 205.0
+  //   },
+  //   byMealType: {
+  //     breakfast: { calories: 420, protein: 18, fat: 12, carbs: 45 },
+  //     lunch: { calories: 650, protein: 28, fat: 20, carbs: 90 },
+  //     dinner: { calories: 0, protein: 0, fat: 0, carbs: 0 },
+  //     snack: { calories: 450, protein: 19, fat: 16, carbs: 70 }
+  //   },
+  //   meals: [
+  //     { food: "パスタ", mealType: "snack", label: "普通", calories: 650 },
+  //     { food: "プロテイン", mealType: "snack", label: "普通", calories: 120 }
+  //   ]
+  // }
+
+  console.log(`TODO: summarizeMealLogs() - Not yet implemented`);
+  return { total: {}, byMealType: {}, meals: [] };
+}
+
+/**
+ * 集計結果をLINE返信用テキストにフォーマット
+ * @param {Object} summary - summarizeMealLogs() の戻り値
+ * @param {string} userId - ユーザーID（オプション、ログ用）
+ * @returns {string} LINE送信用テキスト
+ */
+function formatTodaySummary(summary, userId = '') {
+  // TODO: summary をLINE送信用に整形：
+  //
+  // 出力例：
+  // 今日の食事まとめです。
+  // 合計: 1,520kcal P: 65.0g / F: 48.0g / C: 205.0g
+  //
+  // 内訳:
+  // 朝食: 420kcal
+  // 昼食: 650kcal
+  // 夕食: 0kcal
+  // 間食: 450kcal
+  //
+  // 記録:
+  // ・パスタ / 間食 / 普通 / 650kcal
+  // ・プロテイン / 間食 / 普通 / 120kcal
+
+  console.log(`TODO: formatTodaySummary() - Not yet implemented`);
+  return "今日の食事まとめ機能は準備中です。";
+}
+
 module.exports = {
   addMealLog,
   appendMealLog,
@@ -345,5 +434,8 @@ module.exports = {
   generateLogId,
   updateMealSlot,
   getFoodRegistry,
-  addFoodRegistry
+  addFoodRegistry,
+  getTodayMealLogs,
+  summarizeMealLogs,
+  formatTodaySummary
 };

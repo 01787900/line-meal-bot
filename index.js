@@ -7,6 +7,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const nutritionDb = require('./nutrition-db.json');
 const {
   normalizeUserFoodName,
+  normalizeFoodNameForCompare,
   filterIgnoredLabels,
   createLabelsKey,
   generateCandidatesFromLabels,
@@ -625,48 +626,49 @@ P: ${adjustedNutrition.protein}g / F: ${adjustedNutrition.fat}g / C: ${adjustedN
               return;
             }
           } else {
-            // 「確認」以外のテキスト → 食品名として処理し、修正食品で確認待ちに戻す
+            // 「確認」以外のテキスト → 食品名として処理
             try {
               const foodRegistry = await getFoodRegistry();
               const modifiedFoodName = normalizeUserFoodName(trimmedText);
-              const originalFood = pending.visionResult.selectedCandidates[0].foodName;
-              const detectedLabels = pending.visionResult.detectedLabels || [];
 
-              console.log(`🔄 食品名を修正: ${originalFood} → ${modifiedFoodName}`);
+              // 比較対象は新フローの最終推定食品を使う
+              const originalFood = pending.estimatedFood || pending.visionResult.selectedCandidates[0].foodName;
 
-              // 修正内容を learnedFoods に記録（正規化後の食品名を使用）
-              if (detectedLabels.length > 0) {
-                updateLearnedFood(detectedLabels, originalFood, modifiedFoodName);
+              const normalizedInput = normalizeFoodNameForCompare(modifiedFoodName);
+              const normalizedEstimated = normalizeFoodNameForCompare(originalFood);
+
+              if (normalizedInput === normalizedEstimated) {
+                // 同じ食品 → 確認として扱う（修正ではない）
+                console.log(`✅ 食品名は推定通りです: ${originalFood}`);
+
+                pending.confirmedFood = originalFood;
+                pending.status = "confirmed";
+
+                // source は変更しない（estimatedなどの元の値を維持）
+                // learnedFoods も更新しない
+
+                pending.step = "awaiting_meal_type";
+                await replyWithMealSlotQuickReply(event.replyToken);
+                return;
               }
 
-              // 栄養値の推定
+              // 異なる食品 → 修正として扱う
+              console.log(`🔄 食品名を修正: ${originalFood} → ${modifiedFoodName}`);
+
+              updateLearnedFood(
+                pending.filteredLabels || pending.visionResult.filteredLabels || pending.visionResult.rawVisionLabels || [],
+                originalFood,
+                modifiedFoodName
+              );
+
               const nutrition = await estimateNutrition(modifiedFoodName, foodRegistry);
 
-              // 修正された食品で確認待ちを更新
-              const modifiedResult = {
-                selectedCandidates: [{ foodName: modifiedFoodName, confidence: 1.0 }],
-                alternativeCandidates: pending.visionResult.alternativeCandidates || [],
-                excludedLabels: pending.visionResult.excludedLabels || [],
-                portion: pending.visionResult.portion || 1.0,
-                portionLabel: pending.visionResult.portionLabel || '普通盛り',
-                detectedLabels: pending.visionResult.detectedLabels || detectedLabels,
-                source: 'corrected',
-                nutrition,
-                rawVisionLabels: pending.visionResult.rawVisionLabels || [],
-                filteredLabels: pending.visionResult.filteredLabels || [],
-                labelsKey: pending.visionResult.labelsKey || '',
-                candidateFoods: pending.visionResult.candidateFoods || [],
-              };
+              pending.confirmedFood = modifiedFoodName;
+              pending.status = "corrected";
+              pending.nutrition = nutrition;
+              pending.step = "awaiting_meal_type";
 
-              // 確認待ちデータを更新
-              pending.visionResult = modifiedResult;
-              pending.step = 'food_confirmation_pending';
-              pending.createdAt = Date.now();
-              pending.expireAt = Date.now() + MEAL_CONFIRM_TTL_MS;
-              pendingMealConfirmations.set(userId, pending);
-
-              const replyText = safeLineText(`✅ ${modifiedFoodName}として修正しました。\n次回以降の推定にも反映します。\nカロリー: 約${Math.round(nutrition.calories || nutrition.calorie || 0)}kcal\n\nOKなら「確認」と返信してください`);
-              await replyToUser(event.replyToken, replyText);
+              await replyWithMealSlotQuickReply(event.replyToken);
               return;
 
             } catch (error) {

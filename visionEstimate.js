@@ -150,7 +150,7 @@ async function estimateFoodFromImage(imageBuffer) {
     if (dishCandidates.length > 0) {
       // 最も高いスコアのdishを採用
       selectedDish = dishCandidates[0];
-      console.log(`📋 選択されたdish: ${selectedDish.foodName} (${selectedDish.candidateScore.toFixed(3)})`);
+      console.log(`📋 Vision推定（参考・最終判定には未使用）: ${selectedDish.foodName} (${selectedDish.candidateScore.toFixed(3)})`);
     }
 
     // Step 6: 候補を選別
@@ -242,7 +242,7 @@ async function estimateFoodFromImage(imageBuffer) {
       alternativeCandidates = [];
     }
 
-    console.log(`✅ 認識完了: ${selectedCandidates.map(c => c.foodName).join(', ')}`);
+    console.log(`📋 Vision候補（参考・Geminiで再判定中）: ${selectedCandidates.map(c => c.foodName).join(', ')}`);
 
     // Step 7: 確認待ちステータスで返す
     return {

@@ -35,6 +35,28 @@ function normalizeUserFoodName(text) {
 }
 
 /**
+ * 食品名を比較用に正規化（句読点・語尾・空白を完全に除去）
+ * @param {string} text - 比較対象テキスト
+ * @returns {string} 正規化された食品名
+ */
+function normalizeFoodNameForCompare(text) {
+  if (!text || typeof text !== "string") {
+    return "";
+  }
+
+  return text
+    .trim()
+    .replace(/[。．.!！?？]/g, "")           // 句読点削除
+    .replace(/\s+/g, "")                      // 空白削除
+    .replace(/です$/g, "")                    // 語尾削除
+    .replace(/だよ$/g, "")
+    .replace(/だ$/g, "")
+    .replace(/でお願いします$/g, "")
+    .replace(/お願いします$/g, "")
+    .toLowerCase();                           // 小文字統一
+}
+
+/**
  * JSONファイルを安全に読み込む
  * @param {string} filePath - ファイルパス
  * @param {*} defaultValue - デフォルト値
@@ -257,6 +279,7 @@ function updateLearnedFood(labels, estimatedFood, confirmedFood) {
 
 module.exports = {
   normalizeUserFoodName,
+  normalizeFoodNameForCompare,
   loadJsonFile,
   saveJsonFile,
   filterIgnoredLabels,
