@@ -9,7 +9,7 @@ const nutritionDb = require('./nutrition-db.json');
 // Gemini API初期化
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_KEY);
 const model = genAI.getGenerativeModel({
-  model: 'gemini-1.5-flash',
+  model: 'gemini-2.0-flash',
   apiVersion: 'v1'
 });
 
@@ -320,9 +320,6 @@ app.post('/webhook', (req, res) => {
               const foodName = trimmedText;
 
               console.log(`🔄 食品名を修正: ${foodName}`);
-
-              // 修正開始メッセージを即座に返信
-              await replyToUser(event.replyToken, `✏️ 修正を開始します...`);
 
               const nutrition = await estimateNutrition(foodName, foodRegistry);
 
