@@ -30,10 +30,13 @@ function generateLogId() {
 /**
  * 新フォーマットで食事ログを Google Sheets の meal_logs に追加
  *
- * カラム構成：
- * A: log_id, B: date_jst (YYYY-MM-DD), C: time_jst (HH:mm:ss), D: timestamp (ISO),
+ * カラム構成（全25列）：
+ * A: log_id, B: date_jst, C: time_jst, D: timestamp,
  * E: user_id, F: detected_labels, G: estimated_food, H: confirmed_food,
- * I: confidence, J: portion, K: calories, L: protein, M: fat, N: carbs, O: source, P: status, Q: meal_slot
+ * I: confidence, J: portion, K: calories, L: protein, M: fat, N: carbs,
+ * O: source, P: status, Q: meal_type,
+ * R: portion_label, S: portion_multiplier, T: raw_vision_labels,
+ * U: filtered_labels, V: labels_key, W: candidate_foods, X: eaten_at
  *
  * @param {Object} params - 食事ログパラメータ
  * @param {string} params.userId - LINEユーザーID
@@ -41,11 +44,18 @@ function generateLogId() {
  * @param {string} params.estimatedFood - AI推定食品名
  * @param {string} params.confirmedFood - ユーザー確認・修正食品名
  * @param {number} params.confidence - 推定信頼度（0-1）
- * @param {number} params.portion - 分量（デフォルト: 1.0）
+ * @param {number} params.portion - 分量倍率（デフォルト: 1.0）
  * @param {Object} params.nutrition - 栄養情報 {calorie, protein, fat, carb}
- * @param {string} params.source - 入力源（image, text, manual, learned）
+ * @param {string} params.source - 入力源（image, text, manual, learned, corrected）
  * @param {string} params.status - ステータス（pending, confirmed, corrected）
- * @param {string} params.meal_slot - 食事の時間帯（朝食, 昼食, 夕食, 間食）
+ * @param {string} params.mealType - 食事の時間帯（breakfast, lunch, dinner, snack, late_night）
+ * @param {string} params.portionLabel - 分量表示名（少なめ, 普通, 多め, 大盛り）
+ * @param {number} params.portionMultiplier - 栄養補正倍率
+ * @param {Array} params.rawVisionLabels - Vision API元ラベル配列
+ * @param {Array} params.filteredLabels - フィルター後のラベル配列
+ * @param {string} params.labelsKey - learnedFoods用正規化キー
+ * @param {Array} params.candidateFoods - 候補食品配列
+ * @param {string} params.eatenAt - 食事時刻（ISO 8601形式）
  */
 async function appendMealLog(params) {
   const now = new Date();
@@ -70,25 +80,44 @@ async function appendMealLog(params) {
     ? params.detectedLabels.join(',')
     : params.detectedLabels || '';
 
+  const rawVisionLabelsStr = Array.isArray(params.rawVisionLabels)
+    ? params.rawVisionLabels.join(',')
+    : params.rawVisionLabels || '';
+
+  const filteredLabelsStr = Array.isArray(params.filteredLabels)
+    ? params.filteredLabels.join(',')
+    : params.filteredLabels || '';
+
+  const candidateFoodsStr = Array.isArray(params.candidateFoods)
+    ? params.candidateFoods.join(',')
+    : params.candidateFoods || '';
+
   const values = [
     [
-      logId,
-      dateJst,
-      timeJst,
-      timestamp,
-      params.userId || '',
-      detectedLabelsStr,
-      params.estimatedFood || '',
-      params.confirmedFood || params.estimatedFood || '',
-      Math.round(params.confidence * 100) / 100 || 0,
-      params.portion || 1.0,
-      Math.round(params.nutrition?.calorie || 0),
-      Math.round((params.nutrition?.protein || 0) * 10) / 10,
-      Math.round((params.nutrition?.fat || 0) * 10) / 10,
-      Math.round((params.nutrition?.carb || 0) * 10) / 10,
-      params.source || 'manual',
-      params.status || 'pending',
-      params.meal_slot || '',
+      logId,                                              // A: log_id
+      dateJst,                                            // B: date_jst
+      timeJst,                                            // C: time_jst
+      timestamp,                                          // D: timestamp
+      params.userId || '',                                // E: user_id
+      detectedLabelsStr,                                  // F: detected_labels
+      params.estimatedFood || '',                         // G: estimated_food
+      params.confirmedFood || params.estimatedFood || '', // H: confirmed_food
+      Math.round(params.confidence * 100) / 100 || 0,    // I: confidence
+      params.portion || params.portionMultiplier || 1.0,  // J: portion
+      Math.round(params.nutrition?.calorie || 0),        // K: calories
+      Math.round((params.nutrition?.protein || 0) * 10) / 10, // L: protein
+      Math.round((params.nutrition?.fat || 0) * 10) / 10,     // M: fat
+      Math.round((params.nutrition?.carb || 0) * 10) / 10,    // N: carbs
+      params.source || 'manual',                          // O: source
+      params.status || 'pending',                         // P: status
+      params.mealType || '',                              // Q: meal_type
+      params.portionLabel || '',                          // R: portion_label
+      params.portionMultiplier || 1.0,                    // S: portion_multiplier
+      rawVisionLabelsStr,                                 // T: raw_vision_labels
+      filteredLabelsStr,                                  // U: filtered_labels
+      params.labelsKey || '',                             // V: labels_key
+      candidateFoodsStr,                                  // W: candidate_foods
+      params.eatenAt || timestamp,                        // X: eaten_at
     ],
   ];
 
@@ -97,7 +126,7 @@ async function appendMealLog(params) {
 
     const response = await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
-      range: 'meal_logs!A:Q',
+      range: 'meal_logs!A:X',
       valueInputOption: 'USER_ENTERED',
       resource: { values },
     });
