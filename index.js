@@ -2,8 +2,13 @@ require('dotenv').config();
 const express = require('express');
 const { messagingApi, middleware } = require('@line/bot-sdk');
 const { estimateFoodFromImage } = require('./visionEstimate');
-const { addMealLog, addBodyWeightLog, updateMealSlot } = require('./sheetsWriter');
+const { addMealLog, addBodyWeightLog, updateMealSlot, getFoodRegistry, addFoodRegistry } = require('./sheetsWriter');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const nutritionDb = require('./nutrition-db.json');
+
+// Gemini API初期化
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_KEY);
+const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
 const app = express();
 const client = new messagingApi.MessagingApiClient({
@@ -16,6 +21,10 @@ const blobClient = new messagingApi.MessagingApiBlobClient({
 // 食事の時間帯確認待ちユーザーを一時保存するメモリ（key: userId）
 const pendingMealConfirmations = new Map();
 const MEAL_CONFIRM_TTL_MS = 10 * 60 * 1000; // 10分
+
+// 食品登録待ちユーザーを一時保存（key: userId）
+const pendingFoodRegistrations = new Map();
+const FOOD_REGISTRY_TTL_MS = 5 * 60 * 1000; // 5分
 
 /**
  * 現在時刻（JST）から食事の時間帯を自動判定
@@ -62,50 +71,85 @@ app.use(middleware({
 }));
 
 /**
- * 認識された食べ物から栄養値を推定
+ * Gemini APIで食品のカロリーを推定
+ * @param {string} foodName - 食品名
+ * @returns {Object} 推定栄養値 {calorie, protein, fat, carb}
  */
-function estimateNutrition(foodNames) {
-  const foods = foodNames.split(',').map(f => f.trim());
-  let totalCalorie = 0;
-  let totalProtein = 0;
-  let totalFat = 0;
-  let totalCarb = 0;
-  let matchedCount = 0;
+async function estimateNutritionByGemini(foodName) {
+  try {
+    console.log(`🤖 Gemini APIで "${foodName}" のカロリーを推定中...`);
 
-  for (const food of foods) {
-    const foodLower = food.toLowerCase();
+    const prompt = `以下の食品のカロリーと栄養成分（タンパク質、脂肪、炭水化物）を推定してください。
 
-    // 完全一致または部分一致で栄養値を探す
-    let found = false;
-    for (const [key, nutrition] of Object.entries(nutritionDb)) {
-      if (key.toLowerCase().includes(foodLower) || foodLower.includes(key.toLowerCase())) {
-        totalCalorie += nutrition.calorie;
-        totalProtein += nutrition.protein;
-        totalFat += nutrition.fat;
-        totalCarb += nutrition.carb;
-        matchedCount++;
-        found = true;
-        break;
-      }
+食品名: ${foodName}
+
+以下のJSON形式で返してください。数値のみで単位は含めないでください：
+{
+  "calorie": 数値,
+  "protein": 数値,
+  "fat": 数値,
+  "carb": 数値
+}`;
+
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text();
+
+    // JSON を抽出
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('Gemini APIのレスポンスが解析できません');
     }
 
-    // マッチしなかった場合はデフォルト値を使用
-    if (!found) {
-      const defaultNutrition = nutritionDb['その他'];
-      totalCalorie += defaultNutrition.calorie;
-      totalProtein += defaultNutrition.protein;
-      totalFat += defaultNutrition.fat;
-      totalCarb += defaultNutrition.carb;
-      matchedCount++;
+    const nutrition = JSON.parse(jsonMatch[0]);
+    console.log(`✅ Gemini推定: ${foodName} = ${nutrition.calorie}kcal`);
+
+    return {
+      calorie: parseFloat(nutrition.calorie) || 0,
+      protein: parseFloat(nutrition.protein) || 0,
+      fat: parseFloat(nutrition.fat) || 0,
+      carb: parseFloat(nutrition.carb) || 0,
+    };
+
+  } catch (error) {
+    console.error('❌ Gemini推定エラー:', error.message);
+    // エラー時はデフォルト値を返す
+    return {
+      calorie: 200,
+      protein: 10,
+      fat: 10,
+      carb: 20,
+    };
+  }
+}
+
+/**
+ * 認識された食べ物から栄養値を推定（DB + Gemini統合）
+ */
+async function estimateNutrition(foodName, foodRegistry = {}) {
+  const foodLower = foodName.toLowerCase();
+
+  // Step 1: food_registry で検索
+  if (foodRegistry[foodLower]) {
+    console.log(`✅ food_registry で見つかりました: ${foodName}`);
+    return foodRegistry[foodLower];
+  }
+
+  // Step 2: nutrition-db.json で検索
+  for (const [key, nutrition] of Object.entries(nutritionDb)) {
+    if (key.toLowerCase().includes(foodLower) || foodLower.includes(key.toLowerCase())) {
+      console.log(`✅ nutrition-db で見つかりました: ${key}`);
+      return {
+        calorie: nutrition.calorie,
+        protein: nutrition.protein,
+        fat: nutrition.fat,
+        carb: nutrition.carb,
+      };
     }
   }
 
-  return {
-    estimated_calorie: Math.round(totalCalorie),
-    protein_g: Math.round(totalProtein * 10) / 10,
-    fat_g: Math.round(totalFat * 10) / 10,
-    carb_g: Math.round(totalCarb * 10) / 10,
-  };
+  // Step 3: Gemini APIで推定
+  console.log(`⚠️  DBに見つかりません。Gemini APIで推定します...`);
+  return await estimateNutritionByGemini(foodName);
 }
 
 /**
@@ -164,24 +208,30 @@ app.post('/webhook', (req, res) => {
 
         // 食事確認待ちユーザーからの確認・修正リクエスト
         const confirmText = trimmedText.toLowerCase();
-        if (confirmText === '確認' || confirmText === 'ok' || confirmText === 'ｏｋ') {
-          const userId = event.source && event.source.userId;
-          const pending = userId ? pendingMealConfirmations.get(userId) : null;
+        const userId = event.source && event.source.userId;
+        const pending = userId ? pendingMealConfirmations.get(userId) : null;
 
-          if (pending && pending.status === 'food_confirmation_pending' && pending.expireAt > Date.now()) {
+        if (pending && pending.status === 'food_confirmation_pending' && pending.expireAt > Date.now()) {
+          // 確認待ちステータス中の処理
+          if (confirmText === '確認' || confirmText === 'ok' || confirmText === 'ｏｋ') {
+            // ユーザーが「確認」と返信した場合：ビジョン推定を保存
             try {
               const visionResult = pending.visionResult;
+              const foodRegistry = await getFoodRegistry();
 
               // 選択された食べ物の栄養値を推定
               const selectedFoodNames = visionResult.selectedCandidates.map(c => c.foodName).join(',');
-              const nutritionEstimate = estimateNutrition(selectedFoodNames);
+              const nutritionEstimate = await estimateNutrition(selectedFoodNames, foodRegistry);
 
               // Google Sheetsに記録
               const autoMealSlot = getMealSlotByTime();
               const mealData = {
                 meal_slot: autoMealSlot,
                 estimated_foods: selectedFoodNames,
-                ...nutritionEstimate,
+                estimated_calorie: nutritionEstimate.calorie,
+                protein_g: nutritionEstimate.protein,
+                fat_g: nutritionEstimate.fat,
+                carb_g: nutritionEstimate.carb,
                 confidence: 'confirmed',
                 memo: `確認: ${visionResult.selectedCandidates.map(c => c.foodName).join(', ')}`,
               };
@@ -198,7 +248,7 @@ app.post('/webhook', (req, res) => {
                 });
               }
 
-              // 確認食事確認待ちステータスを削除
+              // 確認待ちステータスを削除
               pendingMealConfirmations.delete(userId);
 
               // 結果をLINEに返信
@@ -206,10 +256,10 @@ app.post('/webhook', (req, res) => {
 `✅ 食事を記録しました！
 
 🍽️  推定食品: ${selectedFoodNames}
-🔥 カロリー: ${nutritionEstimate.estimated_calorie}kcal
-🥛 タンパク質: ${nutritionEstimate.protein_g}g
-🧈 脂質: ${nutritionEstimate.fat_g}g
-🌾 炭水化物: ${nutritionEstimate.carb_g}g
+🔥 カロリー: ${Math.round(nutritionEstimate.calorie)}kcal
+🥛 タンパク質: ${Math.round(nutritionEstimate.protein * 10) / 10}g
+🧈 脂質: ${Math.round(nutritionEstimate.fat * 10) / 10}g
+🌾 炭水化物: ${Math.round(nutritionEstimate.carb * 10) / 10}g
 
 🕐 時間帯: ${autoMealSlot}（自動判定）
 違う場合は下のボタンから選び直してください`;
@@ -223,26 +273,134 @@ app.post('/webhook', (req, res) => {
               return;
             }
           } else {
-            await replyToUser(event.replyToken, 'ℹ️ 確認待ちの食事がありません（画像を送信してください）');
-            return;
-          }
-        }
+            // 「確認」以外のテキスト → 食品名として処理し、修正食品で確認待ちに戻す
+            try {
+              const foodRegistry = await getFoodRegistry();
+              const foodName = trimmedText;
+              const nutrition = await estimateNutrition(foodName, foodRegistry);
 
-        if (confirmText === '修正' || confirmText === 'modify') {
-          const userId = event.source && event.source.userId;
-          const pending = userId ? pendingMealConfirmations.get(userId) : null;
+              console.log(`🔄 食品名を修正: ${foodName}`);
 
-          if (pending && pending.status === 'food_confirmation_pending' && pending.expireAt > Date.now()) {
-            pendingMealConfirmations.delete(userId);
-            await replyToUser(event.replyToken, '食事の修正機能は準備中です。別の写真を送るか、料理名を直接入力してください。');
-            return;
-          } else {
-            await replyToUser(event.replyToken, 'ℹ️ 修正待ちの食事がありません（画像を送信してください）');
-            return;
+              // 修正された食品で確認待ちを更新
+              const autoMealSlot = getMealSlotByTime();
+              const modifiedResult = {
+                status: 'needs_confirmation',
+                selectedCandidates: [{ foodName: foodName }],
+                alternativeCandidates: [],
+                excludedLabels: [],
+                portion: 'normal',
+                portionLabel: '普通盛り前提',
+                message: `${foodName}として修正しました。量は普通盛り前提です。内容を確認してください。`,
+              };
+
+              // 確認待ちデータを更新
+              pendingMealConfirmations.set(userId, {
+                status: 'food_confirmation_pending',
+                visionResult: modifiedResult,
+                foodName: foodName,
+                nutrition: nutrition,
+                createdAt: Date.now(),
+                expireAt: Date.now() + MEAL_CONFIRM_TTL_MS,
+              });
+
+              const replyText = `🍽️ ${modifiedResult.message}\n\n${foodName}のカロリー: 約${Math.round(nutrition.calorie)}kcal\n\nOKなら「確認」と返信、修正する場合は直接料理名を入力してください。`;
+              await replyToUser(event.replyToken, replyText);
+              return;
+
+            } catch (error) {
+              console.error('食品修正エラー:', error.message);
+              await replyToUser(event.replyToken, `❌ 食品「${trimmedText}」の処理に失敗しました。別の料理名を入力してください。`);
+              return;
+            }
           }
         }
 
         console.log('📝 テキスト内容:', text);
+
+        // 食品登録フロー
+        if (confirmText === '登録') {
+          // 食品登録開始
+          if (userId) {
+            pendingFoodRegistrations.set(userId, {
+              step: 'food_name',
+              data: {},
+              expireAt: Date.now() + FOOD_REGISTRY_TTL_MS,
+            });
+            await replyToUser(event.replyToken, '食品を登録します。登録する食品名を入力してください（例：コーヒー）');
+          }
+          return;
+        }
+
+        // 食品登録待ち中の処理
+        const foodReg = userId ? pendingFoodRegistrations.get(userId) : null;
+        if (foodReg && foodReg.expireAt > Date.now()) {
+          try {
+            const trimmedInput = trimmedText;
+
+            if (foodReg.step === 'food_name') {
+              foodReg.data.foodName = trimmedInput;
+              foodReg.step = 'calorie';
+              await replyToUser(event.replyToken, `「${trimmedInput}」を登録します。カロリー（kcal）を入力してください（例：50）`);
+              return;
+            } else if (foodReg.step === 'calorie') {
+              const calorie = parseFloat(trimmedInput);
+              if (isNaN(calorie)) {
+                await replyToUser(event.replyToken, '❌ 数値で入力してください');
+                return;
+              }
+              foodReg.data.calorie = calorie;
+              foodReg.step = 'protein';
+              await replyToUser(event.replyToken, `タンパク質（g）を入力してください（例：0）`);
+              return;
+            } else if (foodReg.step === 'protein') {
+              const protein = parseFloat(trimmedInput);
+              if (isNaN(protein)) {
+                await replyToUser(event.replyToken, '❌ 数値で入力してください');
+                return;
+              }
+              foodReg.data.protein = protein;
+              foodReg.step = 'fat';
+              await replyToUser(event.replyToken, `脂質（g）を入力してください（例：0）`);
+              return;
+            } else if (foodReg.step === 'fat') {
+              const fat = parseFloat(trimmedInput);
+              if (isNaN(fat)) {
+                await replyToUser(event.replyToken, '❌ 数値で入力してください');
+                return;
+              }
+              foodReg.data.fat = fat;
+              foodReg.step = 'carb';
+              await replyToUser(event.replyToken, `炭水化物（g）を入力してください（例：0）`);
+              return;
+            } else if (foodReg.step === 'carb') {
+              const carb = parseFloat(trimmedInput);
+              if (isNaN(carb)) {
+                await replyToUser(event.replyToken, '❌ 数値で入力してください');
+                return;
+              }
+              foodReg.data.carb = carb;
+
+              // Google Sheetsに登録
+              await addFoodRegistry(foodReg.data);
+              pendingFoodRegistrations.delete(userId);
+
+              await replyToUser(event.replyToken,
+                `✅ 食品「${foodReg.data.foodName}」を登録しました！
+カロリー: ${foodReg.data.calorie}kcal
+タンパク質: ${foodReg.data.protein}g
+脂質: ${foodReg.data.fat}g
+炭水化物: ${foodReg.data.carb}g
+
+今後、この食品を入力すると登録されたカロリーが使用されます。`);
+              return;
+            }
+          } catch (error) {
+            console.error('食品登録エラー:', error.message);
+            pendingFoodRegistrations.delete(userId);
+            await replyToUser(event.replyToken, `❌ 食品登録に失敗しました: ${error.message}`);
+            return;
+          }
+        }
 
         // 体重テキスト判定（例：「体重65.2」）
         const weightMatch = text.match(/体重([\d.]+)/);
@@ -257,7 +415,11 @@ app.post('/webhook', (req, res) => {
             console.error('体重記録エラー:', error.message);
             await replyToUser(event.replyToken, '❌ 体重記録に失敗しました');
           }
+          return;
         }
+
+        // その他のテキスト
+        await replyToUser(event.replyToken, 'ℹ️ 食べ物の画像を送るか、「登録」で食品を新規登録できます。');
 
       }
       // 画像メッセージ処理

@@ -150,4 +150,79 @@ async function updateMealSlot(rowNumber, mealSlot) {
   }
 }
 
-module.exports = { addMealLog, addBodyWeightLog, generateLogId, updateMealSlot };
+/**
+ * Google Sheets の food_registry シートから登録済み食品を取得
+ * @returns {Object} 食品マスタ {foodName: {calorie, protein, fat, carb}}
+ */
+async function getFoodRegistry() {
+  try {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'food_registry!A:F',
+    });
+
+    const rows = response.data.values || [];
+    const registry = {};
+
+    // ヘッダーをスキップして、2行目以降を処理
+    for (let i = 1; i < rows.length; i++) {
+      const [foodName, calorie, protein, fat, carb] = rows[i];
+      if (foodName) {
+        registry[foodName.toLowerCase()] = {
+          foodName,
+          calorie: parseFloat(calorie) || 0,
+          protein: parseFloat(protein) || 0,
+          fat: parseFloat(fat) || 0,
+          carb: parseFloat(carb) || 0,
+        };
+      }
+    }
+
+    console.log(`✅ 食品レジストリを読み込みました (${Object.keys(registry).length}件)`);
+    return registry;
+
+  } catch (error) {
+    console.error('❌ 食品レジストリ読み込みエラー:', error.message);
+    return {};
+  }
+}
+
+/**
+ * 新しい食品を food_registry シートに追加
+ * @param {Object} foodData - 食品データ {foodName, calorie, protein, fat, carb}
+ */
+async function addFoodRegistry(foodData) {
+  const now = new Date();
+  const date = now.toISOString().split('T')[0];
+
+  const values = [
+    [
+      foodData.foodName,
+      foodData.calorie || 0,
+      foodData.protein || 0,
+      foodData.fat || 0,
+      foodData.carb || 0,
+      date,
+    ],
+  ];
+
+  try {
+    console.log(`📝 食品 "${foodData.foodName}" をレジストリに登録中...`);
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'food_registry!A:F',
+      valueInputOption: 'USER_ENTERED',
+      resource: { values },
+    });
+
+    console.log(`✅ 食品 "${foodData.foodName}" を登録しました`);
+    return true;
+
+  } catch (error) {
+    console.error('❌ 食品レジストリ登録エラー:', error.message);
+    throw new Error(`食品登録失敗: ${error.message}`);
+  }
+}
+
+module.exports = { addMealLog, addBodyWeightLog, generateLogId, updateMealSlot, getFoodRegistry, addFoodRegistry };
