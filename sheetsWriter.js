@@ -31,8 +31,9 @@ function generateLogId() {
  * 新フォーマットで食事ログを Google Sheets の meal_logs に追加
  *
  * カラム構成：
- * A: log_id, B: timestamp, C: user_id, D: detected_labels, E: estimated_food,
- * F: confirmed_food, G: confidence, H: portion, I: calories, J: protein, K: fat, L: carbs, M: source, N: status, O: meal_slot
+ * A: log_id, B: date_jst (YYYY-MM-DD), C: time_jst (HH:mm:ss), D: timestamp (ISO),
+ * E: user_id, F: detected_labels, G: estimated_food, H: confirmed_food,
+ * I: confidence, J: portion, K: calories, L: protein, M: fat, N: carbs, O: source, P: status, Q: meal_slot
  *
  * @param {Object} params - 食事ログパラメータ
  * @param {string} params.userId - LINEユーザーID
@@ -49,7 +50,21 @@ function generateLogId() {
 async function appendMealLog(params) {
   const now = new Date();
   const logId = generateLogId();
+
+  // ISO形式のタイムスタンプ
   const timestamp = now.toISOString();
+
+  // JST（日本時間）の日付と時刻を計算
+  const jstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000); // UTC+9
+  const year = jstDate.getUTCFullYear();
+  const month = String(jstDate.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(jstDate.getUTCDate()).padStart(2, '0');
+  const hours = String(jstDate.getUTCHours()).padStart(2, '0');
+  const minutes = String(jstDate.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(jstDate.getUTCSeconds()).padStart(2, '0');
+
+  const dateJst = `${year}-${month}-${day}`;
+  const timeJst = `${hours}:${minutes}:${seconds}`;
 
   const detectedLabelsStr = Array.isArray(params.detectedLabels)
     ? params.detectedLabels.join(',')
@@ -58,6 +73,8 @@ async function appendMealLog(params) {
   const values = [
     [
       logId,
+      dateJst,
+      timeJst,
       timestamp,
       params.userId || '',
       detectedLabelsStr,
@@ -80,12 +97,12 @@ async function appendMealLog(params) {
 
     const response = await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
-      range: 'meal_logs!A:O',
+      range: 'meal_logs!A:Q',
       valueInputOption: 'USER_ENTERED',
       resource: { values },
     });
 
-    console.log(`✅ 食事ログを追加しました (log_id: ${logId})`);
+    console.log(`✅ 食事ログを追加しました (log_id: ${logId}, 日時: ${dateJst} ${timeJst})`);
     return { logId, ...response.data };
 
   } catch (error) {
