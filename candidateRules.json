@@ -1,5 +1,55 @@
 [
   {
+    "labels": ["spaghetti"],
+    "candidates": ["パスタ", "スパゲッティ"],
+    "priority": 95
+  },
+  {
+    "labels": ["pasta"],
+    "candidates": ["パスタ", "スパゲッティ"],
+    "priority": 95
+  },
+  {
+    "labels": ["noodle", "spaghetti"],
+    "candidates": ["パスタ", "スパゲッティ", "焼きそば"],
+    "priority": 90
+  },
+  {
+    "labels": ["noodle", "pasta"],
+    "candidates": ["パスタ", "スパゲッティ", "焼きそば"],
+    "priority": 90
+  },
+  {
+    "labels": ["chow mein"],
+    "candidates": ["焼きそば", "中華麺"],
+    "priority": 88
+  },
+  {
+    "labels": ["fried noodles"],
+    "candidates": ["焼きそば", "ミーゴレン"],
+    "priority": 88
+  },
+  {
+    "labels": ["lo mein"],
+    "candidates": ["中華麺", "焼きそば", "ラーメン"],
+    "priority": 80
+  },
+  {
+    "labels": ["rice noodles"],
+    "candidates": ["ビーフン", "フォー", "焼きビーフン"],
+    "priority": 85
+  },
+  {
+    "labels": ["noodle", "soup"],
+    "candidates": ["ラーメン", "うどん", "そば"],
+    "priority": 80
+  },
+  {
+    "labels": ["noodle"],
+    "candidates": ["ラーメン", "うどん", "そば", "パスタ", "焼きそば"],
+    "priority": 50
+  },
+  {
     "labels": ["rice", "egg", "chicken"],
     "candidates": ["親子丼", "チャーハン", "卵かけご飯"],
     "priority": 90
@@ -22,16 +72,6 @@
   {
     "labels": ["rice", "fish"],
     "candidates": ["焼き魚定食", "海鮮丼", "鮭ご飯"],
-    "priority": 75
-  },
-  {
-    "labels": ["noodle", "soup"],
-    "candidates": ["ラーメン", "うどん", "そば"],
-    "priority": 80
-  },
-  {
-    "labels": ["noodle", "pork"],
-    "candidates": ["ラーメン", "焼きそば"],
     "priority": 75
   },
   {

@@ -6,6 +6,7 @@ const { addMealLog, appendMealLog, addBodyWeightLog, updateMealSlot, getFoodRegi
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const nutritionDb = require('./nutrition-db.json');
 const {
+  normalizeUserFoodName,
   filterIgnoredLabels,
   createLabelsKey,
   generateCandidatesFromLabels,
@@ -82,15 +83,15 @@ app.use(middleware({
 
 /**
  * 新しいフロー：learnedFoods → candidateRules → Gemini による食品推定
- * @param {Array} visionLabels - Vision API で検出されたラベル配列（description プロパティを持つオブジェクト）
+ * @param {Array} englishLabels - Vision API で検出された英語ラベル配列（文字列配列）
  * @returns {Object} {foodName, confidence, source, candidates}
  */
-async function refineFoodWithLearning(visionLabels) {
+async function refineFoodWithLearning(englishLabels) {
   try {
     console.log('📋 新フロー: learnedFoods → candidateRules → Gemini');
 
-    // Step 1: ラベルを正規化
-    const labelStrings = visionLabels.map(l => l.description || l);
+    // Step 1: 英語ラベルを小文字化して正規化
+    const labelStrings = englishLabels.map(l => typeof l === 'string' ? l.toLowerCase() : String(l).toLowerCase());
     const filtered = filterIgnoredLabels(labelStrings);
     const labelsKey = createLabelsKey(filtered);
 
@@ -402,13 +403,13 @@ app.post('/webhook', (req, res) => {
             // 「確認」以外のテキスト → 食品名として処理し、修正食品で確認待ちに戻す
             try {
               const foodRegistry = await getFoodRegistry();
-              const modifiedFoodName = trimmedText;
+              const modifiedFoodName = normalizeUserFoodName(trimmedText);
               const originalFood = pending.visionResult.selectedCandidates[0].foodName;
               const detectedLabels = pending.visionResult.detectedLabels || [];
 
               console.log(`🔄 食品名を修正: ${originalFood} → ${modifiedFoodName}`);
 
-              // 修正内容を learnedFoods に記録
+              // 修正内容を learnedFoods に記録（正規化後の食品名を使用）
               if (detectedLabels.length > 0) {
                 updateLearnedFood(detectedLabels, originalFood, modifiedFoodName);
               }
@@ -586,14 +587,30 @@ app.post('/webhook', (req, res) => {
             console.log('📋 新フロー: learnedFoods → candidateRules → Gemini中...');
 
             try {
-              // Vision API のラベルをもとに新フローで推定
-              const rawLabels = visionResult.selectedCandidates.map(c => ({ description: c.foodName })) ||
-                               visionResult.detectedLabels || [];
+              // Vision API のラベル（英語）を直接取得
+              const englishLabels = visionResult.detectedLabels || [];
 
-              const result = await refineFoodWithLearning(rawLabels);
+              console.log(`📊 英語ラベル: ${englishLabels.join(', ')}`);
+
+              // 新フロー: learnedFoods → candidateRules → Gemini
+              const result = await refineFoodWithLearning(englishLabels);
               const { foodName: finalFoodName, candidates, source, confidence } = result;
 
               console.log(`🎯 最終決定: ${finalFoodName} (source: ${source}, confidence: ${confidence})`);
+
+              // 不明の場合は栄養推定せずにユーザーに入力を促す
+              if (finalFoodName === '不明' || candidates[0] === '不明') {
+                console.log('⚠️  料理を特定できませんでした');
+
+                const candidatesList = candidates.length > 1 && candidates[0] !== '不明'
+                  ? `\n\n候補:\n${candidates.slice(0, 3).map((c, i) => `${i + 1}. ${c}`).join('\n')}`
+                  : '';
+
+                const message = `料理名を特定できませんでした。\n食品名を入力してください。\n\n例: パスタ、焼きそば、ラーメン${candidatesList}`;
+
+                await replyToUser(event.replyToken, message);
+                return;
+              }
 
               // 栄養値を推定
               const foodRegistry = await getFoodRegistry();
@@ -608,7 +625,7 @@ app.post('/webhook', (req, res) => {
                 excludedLabels: visionResult.excludedLabels || [],
                 portion: 1.0,
                 portionLabel: '普通盛り',
-                detectedLabels: visionResult.detectedLabels || [],
+                detectedLabels: englishLabels,
                 source,
                 nutrition,
               };
@@ -627,7 +644,7 @@ app.post('/webhook', (req, res) => {
                 ? `\n\n候補:\n${candidates.map((c, i) => `${i + 1}. ${c}`).join('\n')}`
                 : '';
 
-              const confirmMessage = `${finalFoodName}として推定しました。\n信頼度: ${Math.round(confidence * 100)}%\nカロリー: 約${Math.round(nutrition.calorie)}kcal\n\nOKなら「確認」と返信してください。\n違う場合は正しい料理名を送ってください。${candidatesText}`;
+              const confirmMessage = `食事を「${finalFoodName}」として推定しました。\n信頼度: ${Math.round(confidence * 100)}%\n\nこの内容で記録する場合は「確認」と送ってください。\n違う場合は、正しい料理名を送ってください。${candidatesText}`;
 
               await replyToUser(event.replyToken, confirmMessage);
               return;

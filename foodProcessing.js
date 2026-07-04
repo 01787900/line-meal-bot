@@ -4,6 +4,37 @@ const foodTranslation = require('./foodTranslation.json');
 const ignoreLabels = require('./ignoreLabels.json');
 
 /**
+ * ユーザー入力の食品名を正規化
+ * @param {string} text - ユーザーが入力した食品名
+ * @returns {string} 正規化された食品名
+ */
+function normalizeUserFoodName(text) {
+  if (!text || typeof text !== 'string') {
+    return '';
+  }
+
+  let normalized = text.trim();
+
+  // 末尾のパターンを削除
+  normalized = normalized
+    .replace(/です\s*$/, '')
+    .replace(/だよ\s*$/, '')
+    .replace(/だ\s*$/, '')
+    .replace(/でお願いします\s*$/, '')
+    .replace(/お願いします\s*$/, '')
+    .replace(/[。！]$/, '');
+
+  normalized = normalized.trim();
+
+  // 空文字になった場合は元のテキストを返す
+  if (normalized.length === 0) {
+    return text.trim();
+  }
+
+  return normalized;
+}
+
+/**
  * JSONファイルを安全に読み込む
  * @param {string} filePath - ファイルパス
  * @param {*} defaultValue - デフォルト値
@@ -225,6 +256,7 @@ function updateLearnedFood(labels, estimatedFood, confirmedFood) {
 }
 
 module.exports = {
+  normalizeUserFoodName,
   loadJsonFile,
   saveJsonFile,
   filterIgnoredLabels,
