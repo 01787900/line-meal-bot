@@ -161,6 +161,87 @@ app.post('/webhook', (req, res) => {
 
                             return;
                 }
+
+        // 食事確認待ちユーザーからの確認・修正リクエスト
+        const confirmText = trimmedText.toLowerCase();
+        if (confirmText === '確認' || confirmText === 'ok' || confirmText === 'ｏｋ') {
+          const userId = event.source && event.source.userId;
+          const pending = userId ? pendingMealConfirmations.get(userId) : null;
+
+          if (pending && pending.status === 'food_confirmation_pending' && pending.expireAt > Date.now()) {
+            try {
+              const visionResult = pending.visionResult;
+
+              // 選択された食べ物の栄養値を推定
+              const selectedFoodNames = visionResult.selectedCandidates.map(c => c.foodName).join(',');
+              const nutritionEstimate = estimateNutrition(selectedFoodNames);
+
+              // Google Sheetsに記録
+              const autoMealSlot = getMealSlotByTime();
+              const mealData = {
+                meal_slot: autoMealSlot,
+                estimated_foods: selectedFoodNames,
+                ...nutritionEstimate,
+                confidence: 'confirmed',
+                memo: `確認: ${visionResult.selectedCandidates.map(c => c.foodName).join(', ')}`,
+              };
+
+              const sheetResult = await addMealLog(mealData);
+
+              // 書き込んだ行番号を取得し、時間帯確認の状態を保存（10分間有効）
+              const updatedRange = sheetResult && sheetResult.updates && sheetResult.updates.updatedRange;
+              const rowMatch = updatedRange && updatedRange.match(/(\d+)/);
+              if (rowMatch && userId) {
+                pendingMealConfirmations.set(userId, {
+                  row: parseInt(rowMatch[1], 10),
+                  expireAt: Date.now() + MEAL_CONFIRM_TTL_MS,
+                });
+              }
+
+              // 確認食事確認待ちステータスを削除
+              pendingMealConfirmations.delete(userId);
+
+              // 結果をLINEに返信
+              const replyText =
+`✅ 食事を記録しました！
+
+🍽️  推定食品: ${selectedFoodNames}
+🔥 カロリー: ${nutritionEstimate.estimated_calorie}kcal
+🥛 タンパク質: ${nutritionEstimate.protein_g}g
+🧈 脂質: ${nutritionEstimate.fat_g}g
+🌾 炭水化物: ${nutritionEstimate.carb_g}g
+
+🕐 時間帯: ${autoMealSlot}（自動判定）
+違う場合は下のボタンから選び直してください`;
+
+              await replyWithMealSlotQuickReply(event.replyToken, replyText);
+              return;
+
+            } catch (error) {
+              console.error('食事確認エラー:', error.message);
+              await replyToUser(event.replyToken, '❌ 食事の確認に失敗しました');
+              return;
+            }
+          } else {
+            await replyToUser(event.replyToken, 'ℹ️ 確認待ちの食事がありません（画像を送信してください）');
+            return;
+          }
+        }
+
+        if (confirmText === '修正' || confirmText === 'modify') {
+          const userId = event.source && event.source.userId;
+          const pending = userId ? pendingMealConfirmations.get(userId) : null;
+
+          if (pending && pending.status === 'food_confirmation_pending' && pending.expireAt > Date.now()) {
+            pendingMealConfirmations.delete(userId);
+            await replyToUser(event.replyToken, '食事の修正機能は準備中です。別の写真を送るか、料理名を直接入力してください。');
+            return;
+          } else {
+            await replyToUser(event.replyToken, 'ℹ️ 修正待ちの食事がありません（画像を送信してください）');
+            return;
+          }
+        }
+
         console.log('📝 テキスト内容:', text);
 
         // 体重テキスト判定（例：「体重65.2」）
@@ -193,50 +274,59 @@ const stream = await blobClient.getMessageContent(event.message.id);
                   }
                   const imageBuffer = Buffer.concat(chunks);
 
-          // Vision APIで食べ物を認識
+          // Vision APIで食べ物を認識（確認待ちステータスで返される）
           const visionResult = await estimateFoodFromImage(imageBuffer);
 
-          // 栄養値を推定
-          const nutritionEstimate = estimateNutrition(visionResult.estimated_foods);
+          // ステータスに応じた処理
+          if (visionResult.status === 'needs_manual_input') {
+            // 手動入力が必要な場合
+            console.log('⚠️  料理を認識できません');
+            await replyToUser(event.replyToken, visionResult.message);
+            return;
+          }
 
-          // Google Sheetsに記録
-          const autoMealSlot = getMealSlotByTime();
-          const mealData = {
-  meal_slot: autoMealSlot,
-            estimated_foods: visionResult.estimated_foods,
-            ...nutritionEstimate,
-            confidence: visionResult.confidence,
-            memo: `信頼度: ${visionResult.confidence}`,
-          };
+          if (visionResult.status === 'needs_confirmation') {
+            // 確認待ちステータス：候補をユーザーに表示
+            console.log('📋 確認待ち：候補を表示中');
 
-          const sheetResult = await addMealLog(mealData);
+            const userId = event.source && event.source.userId;
+            const selectedFoods = visionResult.selectedCandidates.map(c => c.foodName).join('、');
 
-                  // 書き込んだ行番号を取得し、時間帯確認の状態を保存（10分間有効）
-                  const updatedRange = sheetResult && sheetResult.updates && sheetResult.updates.updatedRange;
-                  const rowMatch = updatedRange && updatedRange.match(/(\d+)/);
-                  const userId = event.source && event.source.userId;
-                  if (rowMatch && userId) {
-                              pendingMealConfirmations.set(userId, {
-                                            row: parseInt(rowMatch[1], 10),
-                                            expireAt: Date.now() + MEAL_CONFIRM_TTL_MS,
-                              });
-                  }
+            // 確認待ちデータを保存（ユーザーが確認するまで保持）
+            if (userId) {
+              pendingMealConfirmations.set(userId, {
+                status: 'food_confirmation_pending',
+                visionResult: visionResult,
+                createdAt: Date.now(),
+                expireAt: Date.now() + MEAL_CONFIRM_TTL_MS,
+              });
+            }
 
-          // 結果をLINEに返信
-          const replyText =
-`✅ 食事を記録しました！
+            // ユーザーに確認メッセージを返信
+            let confirmMessage = `🍽️ ${visionResult.message}\n\n`;
+            confirmMessage += `主候補: ${selectedFoods}\n`;
+            confirmMessage += `量: ${visionResult.portionLabel}\n`;
 
-🍽️  推定食品: ${visionResult.estimated_foods}
-🔥 カロリー: ${nutritionEstimate.estimated_calorie}kcal
-🥛 タンパク質: ${nutritionEstimate.protein_g}g
-🧈 脂質: ${nutritionEstimate.fat_g}g
-🌾 炭水化物: ${nutritionEstimate.carb_g}g
-📊 信頼度: ${visionResult.confidence}
+            if (visionResult.alternativeCandidates && visionResult.alternativeCandidates.length > 0) {
+              confirmMessage += `\n他の候補:\n`;
+              visionResult.alternativeCandidates.slice(0, 3).forEach((cand, idx) => {
+                confirmMessage += `  ${idx + 1}. ${cand.foodName}\n`;
+              });
+            }
 
-🕐 時間帯: ${autoMealSlot}（自動判定）
-違う場合は下のボタンから選び直してください`;
+            if (visionResult.excludedLabels && visionResult.excludedLabels.length > 0) {
+              confirmMessage += `\n除外したラベル: ${visionResult.excludedLabels.join(', ')}\n`;
+            }
 
-          await replyWithMealSlotQuickReply(event.replyToken, replyText);
+            confirmMessage += `\n内容がOKなら「確認」と返信してください。修正する場合は「修正」と返信してください。`;
+
+            await replyToUser(event.replyToken, confirmMessage);
+            return;
+          }
+
+          // 想定外のステータス
+          console.error('未知のステータス:', visionResult.status);
+          await replyToUser(event.replyToken, '❌ 予期しないエラーが発生しました');
 
         } catch (error) {
           console.error('画像処理エラー:', error.message);
