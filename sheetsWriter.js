@@ -127,4 +127,27 @@ async function addBodyWeightLog(weight_kg, memo = '') {
   }
 }
 
-module.exports = { addMealLog, addBodyWeightLog, generateLogId };
+/**
+ * 食事ログの時間帯（meal_slot）を後から更新する
+ * @param {number} rowNumber - meal_logsシートの行番号
+ * @param {string} mealSlot - 新しい時間帯（例: '朝食', '昼食', '夕食', '間食'）
+ */
+async function updateMealSlot(rowNumber, mealSlot) {
+  try {
+    console.log('🔄 食事の時間帯を更新中...', rowNumber, mealSlot);
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `meal_logs!D${rowNumber}`,
+      valueInputOption: 'USER_ENTERED',
+      resource: { values: [[mealSlot]] },
+    });
+
+    console.log('✅ 時間帯を更新しました:', mealSlot);
+  } catch (error) {
+    console.error('❌ 時間帯更新エラー:', error.message);
+    throw new Error(`時間帯更新失敗: ${error.message}`);
+  }
+}
+
+module.exports = { addMealLog, addBodyWeightLog, generateLogId, updateMealSlot };
