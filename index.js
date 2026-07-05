@@ -741,6 +741,14 @@ P: ${adjustedNutrition.protein}g / F: ${adjustedNutrition.fat}g / C: ${adjustedN
 
               console.log(`✅ 食事を確認しました: ${foodName}`);
 
+              // pending.confirmedFood と pending.nutrition を設定
+              pending.confirmedFood = foodName;
+              pending.status = 'confirmed';
+              // pending.nutrition は既に確認ボタン時に初期化されているはず
+              if (!pending.nutrition) {
+                pending.nutrition = pending.visionResult.nutrition;
+              }
+
               // 時間帯確認用のクイックリプライを送信
               await replyWithMealSlotQuickReply(
                 event.replyToken,
