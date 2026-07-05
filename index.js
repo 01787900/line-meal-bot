@@ -110,6 +110,36 @@ async function replyWithMealSlotQuickReply(replyToken, text) {
 }
 
 /**
+ * 検出食の確認用クイックリプライを送信（確認/修正ボタン付き）
+ */
+async function replyWithConfirmationQuickReply(replyToken, detectedFood) {
+  try {
+    await client.replyMessage({
+      replyToken: replyToken,
+      messages: [{
+        type: 'text',
+        text: `「${detectedFood}」のようです。確認してください。`,
+        quickReply: {
+          items: [
+            {
+              type: 'action',
+              action: { type: 'message', label: '確認', text: '確認' },
+            },
+            {
+              type: 'action',
+              action: { type: 'message', label: '修正', text: '修正' },
+            },
+          ],
+        },
+      }],
+    });
+    console.log('✉️ LINEに返信しました（確認/修正ボタン付き）');
+  } catch (error) {
+    console.error('❌ LINE返信エラー:', error.message);
+  }
+}
+
+/**
  * 分量選択用のクイックリプライを送信
  */
 async function replyWithPortionQuickReply(replyToken, text) {
@@ -593,6 +623,43 @@ P: ${adjustedNutrition.protein}g / F: ${adjustedNutrition.fat}g / C: ${adjustedN
           }
         }
 
+        // *** 確認/修正ボタン処理 (新フロー) ***
+        if (pending && pending.step === 'awaiting_confirmation' && pending.expireAt > Date.now()) {
+          if (trimmedText === '確認') {
+            // 確認ボタン：そのまま時間帯選択へ
+            console.log(`✅ 食品を確認: ${pending.estimatedFood}`);
+
+            pending.confirmedFood = pending.estimatedFood;
+            pending.status = 'confirmed';
+            pending.step = 'awaiting_meal_type';
+
+            await replyWithMealSlotQuickReply(
+              event.replyToken,
+              `${pending.estimatedFood} を記録します。\n食べた時間帯を選んでください。`
+            );
+            pendingMealConfirmations.set(userId, pending);
+            return;
+          }
+
+          if (trimmedText === '修正') {
+            // 修正ボタン：テキスト入力モードへ
+            console.log(`🔄 食品修正モード: ユーザー入力待ち`);
+
+            // pending.step を food_confirmation_pending に戻す（既存ハンドラーで処理するため）
+            pending.step = 'food_confirmation_pending';
+
+            await replyToUser(
+              event.replyToken,
+              safeLineText('修正内容を入力してください。\n例：カレーライス、牛丼、唐揚げ定食 など')
+            );
+            pendingMealConfirmations.set(userId, pending);
+            return;
+          }
+
+          // その他のテキスト入力は無視（ボタンのみを待つ）
+          return;
+        }
+
         // *** 食事確認待ちユーザーからの確認・修正リクエスト (Step 1) ***
         const confirmText = trimmedText.toLowerCase();
 
@@ -967,21 +1034,17 @@ P: ${adjustedNutrition.protein}g / F: ${adjustedNutrition.fat}g / C: ${adjustedN
 
               if (userId) {
                 pendingMealConfirmations.set(userId, {
-                  step: 'food_confirmation_pending',
+                  step: 'awaiting_confirmation',
+                  estimatedFood: finalFoodName,
+                  source,
                   visionResult: modifiedResult,
                   createdAt: Date.now(),
                   expireAt: Date.now() + MEAL_CONFIRM_TTL_MS,
                 });
               }
 
-              // ユーザーに確認メッセージを返信（候補表示）
-              const candidatesText = candidates.length > 1
-                ? `\n\n候補:\n${candidates.map((c, i) => `${i + 1}. ${c}`).join('\n')}`
-                : '';
-
-              const confirmMessage = safeLineText(`食事を「${finalFoodName}」として推定しました。\n信頼度: ${Math.round(confidence * 100)}%\n\nこの内容で記録する場合は「確認」と送ってください。\n違う場合は、正しい料理名を送ってください。${candidatesText}`);
-
-              await replyToUser(event.replyToken, confirmMessage);
+              // ユーザーに確認/修正ボタン付きメッセージを返信
+              await replyWithConfirmationQuickReply(event.replyToken, finalFoodName);
               return;
             } catch (error) {
               console.error('❌ 食品推定エラー:', error.message);
