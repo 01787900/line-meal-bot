@@ -648,7 +648,10 @@ P: ${adjustedNutrition.protein}g / F: ${adjustedNutrition.fat}g / C: ${adjustedN
                 // learnedFoods も更新しない
 
                 pending.step = "awaiting_meal_type";
-                await replyWithMealSlotQuickReply(event.replyToken);
+                await replyWithMealSlotQuickReply(
+                  event.replyToken,
+                  `${originalFood} を記録します。\n食べた時間帯を選んでください。`
+                );
                 return;
               }
 
@@ -668,7 +671,10 @@ P: ${adjustedNutrition.protein}g / F: ${adjustedNutrition.fat}g / C: ${adjustedN
               pending.nutrition = nutrition;
               pending.step = "awaiting_meal_type";
 
-              await replyWithMealSlotQuickReply(event.replyToken);
+              await replyWithMealSlotQuickReply(
+                event.replyToken,
+                `${modifiedFoodName} を記録します。\n食べた時間帯を選んでください。`
+              );
               return;
 
             } catch (error) {
