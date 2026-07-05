@@ -11,20 +11,39 @@ const sheets = google.sheets({ version: 'v4', auth });
 const SPREADSHEET_ID = process.env.GOOGLE_SPREADSHEET_ID;
 
 /**
- * ユニークなログIDを生成（タイムスタンプベース）
+ * 現在のJST日時を "YYYY-MM-DD HH:mm:ss" 形式で取得
+ */
+function getCurrentJstDateTimeString() {
+  const now = new Date();
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+
+  const yyyy = jst.getUTCFullYear();
+  const mm = String(jst.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(jst.getUTCDate()).padStart(2, '0');
+  const hh = String(jst.getUTCHours()).padStart(2, '0');
+  const mi = String(jst.getUTCMinutes()).padStart(2, '0');
+  const ss = String(jst.getUTCSeconds()).padStart(2, '0');
+
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
+/**
+ * ユニークなログIDを生成（JST基準のタイムスタンプベース）
  * 形式: LOG_YYYYMMDD_HHmmssSSS
  */
 function generateLogId() {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const hours = String(now.getHours()).padStart(2, '0');
-  const minutes = String(now.getMinutes()).padStart(2, '0');
-  const seconds = String(now.getSeconds()).padStart(2, '0');
-  const ms = String(now.getMilliseconds()).padStart(3, '0');
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
 
-  return `LOG_${year}${month}${day}_${hours}${minutes}${seconds}${ms}`;
+  const yyyy = jst.getUTCFullYear();
+  const mm = String(jst.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(jst.getUTCDate()).padStart(2, '0');
+  const hh = String(jst.getUTCHours()).padStart(2, '0');
+  const mi = String(jst.getUTCMinutes()).padStart(2, '0');
+  const ss = String(jst.getUTCSeconds()).padStart(2, '0');
+  const ms = String(jst.getUTCMilliseconds()).padStart(3, '0');
+
+  return `LOG_${yyyy}${mm}${dd}_${hh}${mi}${ss}${ms}`;
 }
 
 /**
@@ -131,8 +150,9 @@ async function appendMealLog(params) {
       resource: { values },
     });
 
-    console.log(`✅ 食事ログを追加しました (log_id: ${logId}, 日時: ${dateJst} ${timeJst})`);
-    return { logId, ...response.data };
+    const eatenAt = `${dateJst} ${timeJst}`;
+    console.log(`✅ 食事ログを追加しました (log_id: ${logId}, 日時: ${eatenAt})`);
+    return { logId, eatenAt, dateJst, timeJst, ...response.data };
 
   } catch (error) {
     console.error('❌ 新フォーマットシート書き込みエラー:', error.message);
@@ -592,6 +612,7 @@ module.exports = {
   appendMealLog,
   addBodyWeightLog,
   generateLogId,
+  getCurrentJstDateTimeString,
   updateMealSlot,
   getFoodRegistry,
   addFoodRegistry,

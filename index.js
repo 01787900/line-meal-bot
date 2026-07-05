@@ -576,18 +576,80 @@ app.post('/webhook', (req, res) => {
 
             // Google Sheets に保存
             const visionResult = pending.visionResult;
-            const foodName = visionResult.selectedCandidates[0].foodName;
 
-            await appendMealLog({
+            // ===== 保存値の決定 =====
+            const foodNameToSave = pending.confirmedFood;
+            if (!foodNameToSave) {
+              console.error('❌ confirmedFood が未設定のまま保存しようとしています:', {
+                estimatedFood: pending.estimatedFood,
+                confirmedFood: pending.confirmedFood,
+              });
+              await replyToUser(
+                event.replyToken,
+                safeLineText('❌ 食品名の確定に失敗しました。もう一度お試しください。')
+              );
+              return;
+            }
+
+            const nutritionToSave = pending.nutrition;
+            if (!nutritionToSave) {
+              console.error('❌ nutrition が未設定のまま保存しようとしています:', {
+                confirmedFood: pending.confirmedFood,
+                nutrition: pending.nutrition,
+              });
+              await replyToUser(
+                event.replyToken,
+                safeLineText('❌ 栄養情報の取得に失敗しました。もう一度お試しください。')
+              );
+              return;
+            }
+
+            const statusToSave = pending.status;
+            if (!statusToSave) {
+              console.error('❌ status が未設定のまま保存しようとしています:', {
+                confirmedFood: pending.confirmedFood,
+                status: pending.status,
+              });
+              await replyToUser(
+                event.replyToken,
+                safeLineText('❌ 食事ステータスの確定に失敗しました。もう一度お試しください。')
+              );
+              return;
+            }
+
+            // 保存直前のデバッグログ
+            console.log('📝 保存直前の食事データ:', {
+              estimatedFood: visionResult.selectedCandidates[0].foodName,
+              confirmedFood: foodNameToSave,
+              status: statusToSave,
+              mealType: pending.mealType,
+              portionLabel: trimmedText,
+              portionMultiplier: portionOption.multiplier,
+              nutritionBeforePortion: {
+                calories: Math.round(nutritionToSave.calories / portionOption.multiplier),
+                protein: Math.round((nutritionToSave.protein / portionOption.multiplier) * 10) / 10,
+                fat: Math.round((nutritionToSave.fat / portionOption.multiplier) * 10) / 10,
+                carbs: Math.round((nutritionToSave.carbs / portionOption.multiplier) * 10) / 10,
+              },
+              nutritionAfterPortion: {
+                calories: Math.round(adjustedNutrition.calories),
+                protein: Math.round(adjustedNutrition.protein * 10) / 10,
+                fat: Math.round(adjustedNutrition.fat * 10) / 10,
+                carbs: Math.round(adjustedNutrition.carbs * 10) / 10,
+              },
+            });
+
+            // Google Sheets に保存
+            const savedLog = await appendMealLog({
               userId,
               detectedLabels: visionResult.detectedLabels || [],
               estimatedFood: visionResult.selectedCandidates[0].foodName,
-              confirmedFood: foodName,
+              confirmedFood: foodNameToSave,
               confidence: visionResult.selectedCandidates[0].confidence || 0.7,
               portion: portionOption.multiplier,
               nutrition: adjustedNutrition,
               source: visionResult.source || 'image',
-              status: 'confirmed',
+              status: statusToSave,
               mealType: pending.mealType,
               portionLabel: trimmedText,
               portionMultiplier: portionOption.multiplier,
@@ -600,15 +662,20 @@ app.post('/webhook', (req, res) => {
 
             // 記録完了メッセージを送信
             const mealTypeDisplay = MEAL_TYPES[pending.mealType];
-            const eatenAtFormatted = formatJstForDisplay(eatenAt);
+            const displayRecordId = savedLog.logId.replace('LOG_', '');
 
             const recordMsg = safeLineText(`✅ 記録しました。
-料理: ${foodName}
+料理: ${foodNameToSave}
 時間帯: ${mealTypeDisplay}
-食事時刻: ${eatenAtFormatted}
+食事時刻: ${savedLog.eatenAt}
 量: ${trimmedText}
 カロリー: ${Math.round(adjustedNutrition.calories)}kcal
-P: ${adjustedNutrition.protein}g / F: ${adjustedNutrition.fat}g / C: ${adjustedNutrition.carbs}g`);
+P: ${adjustedNutrition.protein}g / F: ${adjustedNutrition.fat}g / C: ${adjustedNutrition.carbs}g
+
+記録ID: ${displayRecordId}
+
+修正したい場合は「修正 ${foodNameToSave}→パスタ」のように送ってください。
+加筆したい場合は「加筆 ねぎを追加」のように送ってください。`);
 
             await replyToUser(event.replyToken, recordMsg);
 
@@ -631,6 +698,7 @@ P: ${adjustedNutrition.protein}g / F: ${adjustedNutrition.fat}g / C: ${adjustedN
 
             pending.confirmedFood = pending.estimatedFood;
             pending.status = 'confirmed';
+            pending.nutrition = pending.visionResult.nutrition;  // 推定食品の栄養を保持
             pending.step = 'awaiting_meal_type';
 
             await replyWithMealSlotQuickReply(
